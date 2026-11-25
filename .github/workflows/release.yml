@@ -20,10 +20,15 @@ jobs:
       - name: Package
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          npm version --no-git-tag-version "$VERSION"
+          CURRENT=$(node -p "require('./package.json').version")
+          if [ "$CURRENT" != "$VERSION" ]; then
+            npm version --no-git-tag-version --allow-same-version "$VERSION"
+          fi
           mkdir -p release
           npm pack --pack-destination release/
-          mv "release/rtools-${VERSION}.tgz" "release/rtools-v${VERSION}.tgz"
+          if [ ! -f "release/rtools-v${VERSION}.tgz" ]; then
+            mv "release/rtools-${VERSION}.tgz" "release/rtools-v${VERSION}.tgz"
+          fi
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
