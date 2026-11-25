@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const fakeHome = mkdtempSync(path.join(tmpdir(), "rtools-proxy-test-"));
 process.env.HOME = fakeHome; // keep the real ~/.rtools/mcp-auth.json untouched
+process.env.RTOOLS_OAUTH_CODE_TIMEOUT_MS = "1500"; // keep Case 11's no-callback timeout fast; must be set before mcp-oauth.js is first imported (Case 2)
 mkdirSync(path.join(fakeHome, ".rtools"), { recursive: true });
 writeFileSync(path.join(fakeHome, ".rtools", "mcp-auth.json"), JSON.stringify({}));
 
@@ -419,4 +420,60 @@ if (failures === 0) {
 }
 
 
+// Case 11: the OAuth callback server must handle listen errors (port in use)
+// with a rejection instead of an unhandled 'error' event crash, and the code
+// promise must time out and close the server if the user never authorizes.
+{
+  const { getMcpAccessToken } = await import(path.join(root, "src", "mcp-oauth.js"));
+
+  // Fake IdP serving metadata + dynamic registration; authorization never completes.
+  let idp;
+  const idpUrl = await new Promise((resolve) => {
+    const s = http.createServer((req, res) => {
+      if (req.url.startsWith("/.well-known/oauth-authorization-server")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          authorization_endpoint: `http://127.0.0.1:${s.address().port}/auth`,
+          registration_endpoint: `http://127.0.0.1:${s.address().port}/register`,
+          token_endpoint: `http://127.0.0.1:${s.address().port}/token`,
+        }));
+      } else if (req.url.startsWith("/register")) {
+        let b = ""; req.on("data", (c) => (b += c));
+        req.on("end", () => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ client_id: "client-test" }));
+        });
+      } else { res.writeHead(404).end(); }
+    });
+    s.listen(0, "127.0.0.1", () => { resolve(`http://127.0.0.1:${s.address().port}`); idp = s; });
+  });
+
+  const blocker = http.createServer(() => {});
+  try {
+    // 11a: port 14778 already in use -> clean rejection, no process crash.
+    await new Promise((resolve) => blocker.listen(14778, "127.0.0.1", resolve));
+    let errA = null;
+    await getMcpAccessToken("case11a", idpUrl).catch((e) => { errA = e; });
+    if (!errA || !/callback server failed on port 14778/.test(errA.message)) {
+      console.error(`FAIL: port-in-use not reported as listen error (err=${errA && errA.message})`); failures++;
+    }
+    blocker.close();
+
+    // 11b: user never completes authorization -> codePromise times out and rejects.
+    const t0 = Date.now();
+    let errB = null;
+    await getMcpAccessToken("case11b", idpUrl).catch((e) => { errB = e; });
+    if (!errB || !/timed out/.test(errB.message)) {
+      console.error(`FAIL: no callback received did not time out (err=${errB && errB.message})`); failures++;
+    }
+    if (Date.now() - t0 > 4000) { console.error("FAIL: OAuth timeout took too long"); failures++; }
+  } finally {
+    blocker.close(); blocker.closeAllConnections();
+    idp.close(); idp.closeAllConnections();
+  }
+  if (!failures) console.log("OAUTH  : listen errors reject cleanly; pending code promise times out");
+}
+
+
 console.log("ALL_PROXY_TESTS_PASSED");
+process.exit(failures ? 1 : 0); // undici keep-alive sockets to the fake IdP would otherwise hold the event loop open

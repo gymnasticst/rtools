@@ -11,6 +11,8 @@ import os from "node:os";
 
 const AUTH_CACHE = path.join(os.homedir(), ".rtools", "mcp-auth.json");
 const CALLBACK_PORT = 14778;
+// Override in tests to exercise the timeout quickly.
+const CODE_TIMEOUT_MS = Number(process.env.RTOOLS_OAUTH_CODE_TIMEOUT_MS) || 5 * 60 * 1000;
 
 function readCache() {
   try {
@@ -79,6 +81,17 @@ function authorizeAndWaitForCode({ metadata, client, serverUrl, verifier }) {
   authUrl.searchParams.set("resource", serverUrl);
 
   const codePromise = new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      server.close();
+      fn(arg);
+    };
+    const fail = (err) => settle(reject, err);
+    const succeed = (code) => settle(resolve, code);
+
     const server = createServer((req, res) => {
       const reqUrl = new URL(req.url, redirectUri);
       if (reqUrl.pathname !== "/callback") {
@@ -87,18 +100,21 @@ function authorizeAndWaitForCode({ metadata, client, serverUrl, verifier }) {
       }
       if (reqUrl.searchParams.get("state") !== state) {
         res.writeHead(400).end("state mismatch");
-        reject(new Error("OAuth state mismatch"));
-        server.close();
+        fail(new Error("OAuth state mismatch"));
         return;
       }
       const code = reqUrl.searchParams.get("code");
       const error = reqUrl.searchParams.get("error");
       res.writeHead(200, { "content-type": "text/html" });
       res.end("<h1>RTools: authorization complete. You can close this tab.</h1>");
-      server.close();
-      if (error || !code) reject(new Error(`OAuth failed: ${error || "no code"}`));
-      else resolve(code);
+      if (error || !code) fail(new Error(`OAuth failed: ${error || "no code"}`));
+      else succeed(code);
     });
+    server.on("error", (err) => fail(new Error(`OAuth callback server failed on port ${CALLBACK_PORT}: ${err.message}`)));
+    const timer = setTimeout(
+      () => fail(new Error(`OAuth authorization timed out after ${CODE_TIMEOUT_MS / 1000}s — no callback received`)),
+      CODE_TIMEOUT_MS,
+    );
     server.listen(CALLBACK_PORT, "127.0.0.1");
   });
 
