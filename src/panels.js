@@ -6,7 +6,7 @@
 //   - plugin status: real installed plugins from ~/.rtools/plugins.toml
 import { readdirSync, statSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { pick } from "./palette.js";
+import { pick, typeText } from "./palette.js";
 import { agentEvents, runningAgents } from "./agent-registry.js";
 import { readInstalled, pluginInstalledNames } from "./marketplace.js";
 
@@ -80,7 +80,7 @@ export async function terminalPanel({ cwd = process.cwd(), run = null } = {}) {
   const exec = run || (await import("./sandbox.js")).execWithSandbox;
   let last = null;
   for (;;) {
-    const cmd = await (await import("./palette.js")).typeText({
+    const cmd = await typeText({
       title: `Terminal — ${cwd} (Esc: close)`,
       prompt: "$",
     });
