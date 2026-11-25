@@ -228,6 +228,16 @@ async function streamAnthropic({ provider, apiKey, model, messages, tools, onTex
   return { text: text.join(""), toolCalls: [...blocks.values()].filter((b) => b.name).map((b) => ({ id: b.id, name: b.name, arguments: b.arguments || "{}" })) };
 }
 
+// List model ids from an OpenAI-compatible /models or Anthropic /v1/models endpoint.
+export async function listModels({ provider, apiKey }) {
+  const pathPart = provider.wire_api === "anthropic" ? "/v1/models" : "/models";
+  const res = await fetch(buildUrl(provider, pathPart), { headers: extraHeaders(provider, apiKey) });
+  if (!res.ok) throw new Error(`Provider HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  const items = data.data || data.models || [];
+  return items.map((m) => m.id || m.name).filter(Boolean).sort();
+}
+
 const ADAPTERS = { chat: streamChat, responses: streamResponses, anthropic: streamAnthropic };
 
 export function stream(opts) {

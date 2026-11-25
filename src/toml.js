@@ -114,6 +114,45 @@ function getTable(root, path, create) {
   return cur;
 }
 
+// Serialize a plain object back to the TOML subset parseTOML accepts:
+// scalar keys first, then [[arrays of tables]], then [tables] (nested, dotted).
+export function stringifyTOML(value) {
+  const key = (k) => (/^[A-Za-z0-9_-]+$/.test(k) ? k : JSON.stringify(String(k)));
+  const val = (v) => {
+    if (v === null || v === undefined) return '""';
+    if (typeof v === "string") return JSON.stringify(v);
+    if (typeof v === "number" || typeof v === "boolean") return String(v);
+    if (Array.isArray(v)) return `[${v.map((x) => (x && typeof x === "object" ? JSON.stringify(x) : val(x))).join(", ")}]`;
+    return `{ ${Object.entries(v).map(([k2, v2]) => `${key(k2)} = ${val(v2)}`).join(", ")} }`;
+  };
+  const lines = [];
+  const isPlainObj = (x) => x && typeof x === "object" && !Array.isArray(x);
+  const walk = (obj, prefix) => {
+    const scalars = [];
+    const tableArrays = [];
+    const tables = [];
+    for (const [k, v] of Object.entries(obj)) {
+      const full = prefix ? `${prefix}.${key(k)}` : key(k);
+      if (Array.isArray(v) && v.length > 0 && v.every(isPlainObj)) tableArrays.push([full, v]);
+      else if (isPlainObj(v)) tables.push([full, v]);
+      else scalars.push([key(k), v]);
+    }
+    for (const [full, v] of scalars) lines.push(`${full} = ${val(v)}`);
+    for (const [full, arr] of tableArrays) {
+      for (const item of arr) {
+        lines.push("", `[[${full}]]`);
+        walk(item, full);
+      }
+    }
+    for (const [full, v] of tables) {
+      lines.push("", `[${full}]`);
+      walk(v, full);
+    }
+  };
+  walk(value, "");
+  return lines.join("\n") + "\n";
+}
+
 export function parseTOML(text) {
   const root = {};
   let cur = root;

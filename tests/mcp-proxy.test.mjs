@@ -693,5 +693,50 @@ if (failures === 0) {
   if (!failures) console.log("TUI     : mdStreamer highlighting; plain/color themes");
 }
 
+// Case 19: config persistence — stringifyTOML round-trip, saveConfig merge/delete
+{
+  const { parseTOML, stringifyTOML } = await import("../src/toml.js");
+  const { saveConfig } = await import("../src/config.js");
+  const original = `model = "gpt-x"
+approval_policy = "never"
+[[mcp_servers]]
+name = "a"
+command = "run-a"
+args = ["--x"]
+
+[mcp_servers.env]
+K = "v"
+
+[profile.fast]
+model = "mini"
+`;
+
+  // Round-trip: parse -> stringify -> parse must be deep-equal.
+  const p1 = parseTOML(original);
+  const p2 = parseTOML(stringifyTOML(p1));
+  if (JSON.stringify(p1) !== JSON.stringify(p2)) {
+    console.error(`FAIL: stringifyTOML round-trip changed data\n${JSON.stringify(p1)}\n${JSON.stringify(p2)}`);
+    failures++;
+  }
+
+  // saveConfig: merge adds, undefined deletes, existing keys survive.
+  const cfgPath = path.join(fakeHome, ".rtools", "config.toml");
+  mkdirSync(path.dirname(cfgPath), { recursive: true });
+  writeFileSync(cfgPath, original);
+  saveConfig({ model: "new-model", models: { fast: "mini-latest" }, profile: { saved: { model: "m1" } } }, { configPath: cfgPath });
+  const after = parseTOML(readFileSync(cfgPath, "utf8"));
+  if (after.model !== "new-model" || after.approval_policy !== "never") { console.error(`FAIL: saveConfig merge broken: ${JSON.stringify(after)}`); failures++; }
+  if (after.models?.fast !== "mini-latest") { console.error("FAIL: saveConfig models not written"); failures++; }
+  if (after.profile?.saved?.model !== "m1" || after.profile?.fast?.model !== "mini") { console.error("FAIL: saveConfig profiles not merged"); failures++; }
+  if (after.mcp_servers?.[0]?.name !== "a") { console.error("FAIL: saveConfig lost [[mcp_servers]] array"); failures++; }
+
+  saveConfig({ models: { fast: undefined }, profile: { saved: undefined } }, { configPath: cfgPath });
+  const afterDel = parseTOML(readFileSync(cfgPath, "utf8"));
+  if (afterDel.models?.fast !== undefined || afterDel.profile?.saved !== undefined) { console.error(`FAIL: saveConfig delete broken: ${JSON.stringify(afterDel)}`); failures++; }
+  if (afterDel.profile?.fast?.model !== "mini" || afterDel.model !== "new-model") { console.error("FAIL: saveConfig delete removed wrong keys"); failures++; }
+
+  if (!failures) console.log("CONFIG  : stringifyTOML round-trip; saveConfig merge + delete");
+}
+
 console.log("ALL_PROXY_TESTS_PASSED");
 process.exit(failures ? 1 : 0); // undici keep-alive sockets to the fake IdP would otherwise hold the event loop open

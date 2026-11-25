@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { execFileSync, spawn as spawnProcess } from "node:child_process";
 import path from "node:path";
 import { runAgentLoop, systemPrompt, needsApproval } from "./agent.js";
+import { saveConfig, BUILTIN_PROVIDERS } from "./config.js";
 import { saveSession, listSessions, loadSession, compactMessages, estimateTokens } from "./session.js";
 import { changedFilesSince } from "./apply-patch.js";
 import { SANDBOX_MODES } from "./sandbox.js";
@@ -16,8 +17,12 @@ const HELP = `Commands:
   /review [target] review changes (uncommitted | <commit> | <base-branch>) and find issues
   /permissions     show/choose what RTools is allowed to do (approval + sandbox)
   /plan            toggle plan mode (read-only: effectful tools require approval)
-  /model <name>    switch model
-  /provider <id>   switch model provider (defined in config.toml)
+  /model <name>    switch model (alias from /model add also works)
+  /model list      list models from the provider API + saved aliases
+  /model add|rm    save/remove a model alias: /model add <alias> <model-id>
+  /provider <id>   switch model provider (built-in or from config.toml)
+  /provider list|add|rm   list providers; add/rm custom ones
+  /agent list|use|add|rm   agent profiles from [profile.*] in config.toml
   /policy <mode>   approval policy: untrusted | never | always
   /sandbox <mode>  sandbox mode: read-only | workspace | danger
   /tools           list available tools (built-in + MCP plugins)
@@ -42,7 +47,7 @@ export async function startREPL(ctx) {
   const SLASH_COMMANDS = [
     "/init", "/review", "/permissions", "/plan", "/prompts", "/tools", "/skills",
     "/status", "/diff", "/compact", "/resume", "/settings", "/effort", "/verbosity",
-    "/clear", "/quit",
+    "/model", "/provider", "/agent", "/clear", "/quit",
   ];
   const completer = (line) => {
     const hits = SLASH_COMMANDS.filter((c) => c.startsWith(line));
@@ -350,25 +355,207 @@ export async function startREPL(ctx) {
           if (!ctx.mcpConnections.length) console.log("(no MCP servers connected)");
           continue;
         }
-        case "/model":
-          if (rest[0]) model = rest[0];
-          console.log(`model: ${model}`);
-          continue;
-        case "/provider": {
-          if (!rest[0]) {
-            console.log(`current provider: ${ctx.provider.id}`);
+        case "/model": {
+          const sub = rest[0];
+          if (!sub) {
+            console.log(`model: ${model} (provider: ${ctx.provider.id})`);
+            console.log("(tip: /model list shows provider models; /model <name|alias> switches)");
             continue;
           }
-          const { resolveProvider, getApiKey } = await import("./config.js");
+          if (sub === "list") {
+            const saved = Object.entries(ctx.cfg.models || {});
+            if (saved.length) console.log(`saved aliases:\n  ${saved.map(([a, id]) => `${a} = ${id}`).join("\n  ")}`);
+            try {
+              const { listModels } = await import("./providers.js");
+              const ids = await listModels({ provider: ctx.provider, apiKey: ctx.apiKey });
+              console.log(ids.length ? `models from ${ctx.provider.id}:\n  ${ids.join("\n  ")}` : `(${ctx.provider.id} returned no models)`);
+            } catch (e) {
+              console.log(`could not list models from ${ctx.provider.id}: ${e.message}`);
+            }
+            continue;
+          }
+          if (sub === "add") {
+            const [alias, id] = rest.slice(1);
+            if (!alias || !id) {
+              console.log("usage: /model add <alias> <model-id>");
+              continue;
+            }
+            ctx.cfg.models = { ...(ctx.cfg.models || {}), [alias]: id };
+            try {
+              saveConfig({ models: { [alias]: id } });
+              console.log(`saved ${alias} = ${id} to config.toml`);
+            } catch (e) {
+              console.log(`error: ${e.message}`);
+            }
+            continue;
+          }
+          if (sub === "rm") {
+            const alias = rest[1];
+            if (!alias || !(ctx.cfg.models || {})[alias]) {
+              console.log(`no such alias "${alias || ""}" (use /model list)`);
+              continue;
+            }
+            delete ctx.cfg.models[alias];
+            try {
+              saveConfig({ models: { [alias]: undefined } });
+              console.log(`removed alias ${alias}`);
+            } catch (e) {
+              console.log(`error: ${e.message}`);
+            }
+            continue;
+          }
+          model = (ctx.cfg.models || {})[sub] || sub;
           try {
-            const p = resolveProvider(ctx.cfg, rest[0]);
+            saveConfig({ model });
+            console.log(`model: ${model} (saved)`);
+          } catch {
+            console.log(`model: ${model}`);
+          }
+          continue;
+        }
+        case "/provider": {
+          const sub = rest[0];
+          if (!sub || sub === "list") {
+            const custom = Object.keys(ctx.cfg.model_providers || {});
+            console.log(`current provider: ${ctx.provider.id}`);
+            console.log(`available: ${[...Object.keys(BUILTIN_PROVIDERS), ...custom].join(", ")}`);
+            console.log("(tip: /provider add <id> <base_url> [env_key] [wire_api] adds a custom provider)");
+            continue;
+          }
+          if (sub === "add") {
+            const [id, baseUrl, envKey, wireApi] = rest.slice(1);
+            if (!id || !baseUrl) {
+              console.log("usage: /provider add <id> <base_url> [env_key] [wire_api=chat|responses|anthropic]");
+              continue;
+            }
+            if (BUILTIN_PROVIDERS[id]) {
+              console.log(`"${id}" is a built-in provider and cannot be replaced`);
+              continue;
+            }
+            const wire = wireApi || "chat";
+            if (!["chat", "responses", "anthropic"].includes(wire)) {
+              console.log(`wire_api must be chat | responses | anthropic (got "${wire}")`);
+              continue;
+            }
+            const entry = { name: id, base_url: baseUrl, env_key: envKey || null, wire_api: wire };
+            ctx.cfg.model_providers = { ...(ctx.cfg.model_providers || {}), [id]: entry };
+            try {
+              saveConfig({ model_providers: { [id]: entry } });
+              console.log(`provider ${id} saved to config.toml (base_url=${baseUrl}, wire_api=${wire})`);
+            } catch (e) {
+              console.log(`error: ${e.message}`);
+            }
+            continue;
+          }
+          if (sub === "rm") {
+            const id = rest[1];
+            if (!id) {
+              console.log("usage: /provider rm <id>");
+              continue;
+            }
+            if (BUILTIN_PROVIDERS[id]) {
+              console.log(`"${id}" is built-in and cannot be removed`);
+              continue;
+            }
+            if (!(ctx.cfg.model_providers || {})[id]) {
+              console.log(`no such custom provider "${id}" (use /provider list)`);
+              continue;
+            }
+            delete ctx.cfg.model_providers[id];
+            try {
+              saveConfig({ model_providers: { [id]: undefined } });
+              console.log(`provider ${id} removed`);
+            } catch (e) {
+              console.log(`error: ${e.message}`);
+            }
+            continue;
+          }
+          try {
+            const { resolveProvider, getApiKey } = await import("./config.js");
+            const p = resolveProvider(ctx.cfg, sub);
             const key = getApiKey(p);
             ctx.provider = p;
             ctx.apiKey = key;
-            console.log(`provider: ${p.id} (${p.wire_api})`);
+            try {
+              saveConfig({ model_provider: p.id });
+              console.log(`provider: ${p.id} (${p.wire_api}) (saved)`);
+            } catch {
+              console.log(`provider: ${p.id} (${p.wire_api})`);
+            }
           } catch (e) {
             console.log(e.message);
           }
+          continue;
+        }
+        case "/agent": {
+          const profiles = () => ctx.cfg.profile || ctx.cfg.profiles || {};
+          const sub = rest[0] || "list";
+          if (sub === "list") {
+            const entries = Object.entries(profiles());
+            if (!entries.length) {
+              console.log("(no agent profiles — /agent add <name> saves the current model/provider/effort/verbosity as one)");
+              continue;
+            }
+            for (const [name, p] of entries) {
+              console.log(`${name}: model=${p.model || "(keep)"} provider=${p.model_provider || "(keep)"} effort=${p.model_reasoning_effort || "(keep)"} verbosity=${p.model_verbosity || "(keep)"}`);
+            }
+            console.log("(tip: /agent use <name> applies a profile)");
+            continue;
+          }
+          if (sub === "use") {
+            const p = profiles()[rest[1]];
+            if (!p) {
+              console.log(`no such agent "${rest[1] || ""}" (use /agent list)`);
+              continue;
+            }
+            if (p.model) model = p.model;
+            if (p.model_reasoning_effort) effort = p.model_reasoning_effort;
+            if (p.model_verbosity) verbosity = p.model_verbosity;
+            if (p.model_provider && p.model_provider !== ctx.provider.id) {
+              try {
+                const { resolveProvider, getApiKey } = await import("./config.js");
+                const prov = resolveProvider(ctx.cfg, p.model_provider);
+                ctx.apiKey = getApiKey(prov);
+                ctx.provider = prov;
+              } catch (e) {
+                console.log(`provider: ${e.message}`);
+              }
+            }
+            console.log(`agent "${rest[1]}": model=${model} provider=${ctx.provider.id} effort=${effort} verbosity=${verbosity}`);
+            continue;
+          }
+          if (sub === "add") {
+            const name = rest[1];
+            if (!name) {
+              console.log("usage: /agent add <name>");
+              continue;
+            }
+            const entry = { model, model_provider: ctx.provider.id, model_reasoning_effort: effort, model_verbosity: verbosity };
+            ctx.cfg.profile = { ...(ctx.cfg.profile || {}), [name]: entry };
+            try {
+              saveConfig({ profile: { [name]: entry } });
+              console.log(`agent "${name}" saved to config.toml (model=${entry.model}, provider=${entry.model_provider})`);
+            } catch (e) {
+              console.log(`error: ${e.message}`);
+            }
+            continue;
+          }
+          if (sub === "rm") {
+            const name = rest[1];
+            if (!name || !profiles()[name]) {
+              console.log(`no such agent "${name || ""}" (use /agent list)`);
+              continue;
+            }
+            delete (ctx.cfg.profile || (ctx.cfg.profile = {}))[name];
+            try {
+              saveConfig({ profile: { [name]: undefined } });
+              console.log(`agent "${name}" removed`);
+            } catch (e) {
+              console.log(`error: ${e.message}`);
+            }
+            continue;
+          }
+          console.log("usage: /agent list | use <name> | add <name> | rm <name>");
           continue;
         }
         case "/policy":
@@ -446,7 +633,12 @@ export async function startREPL(ctx) {
         case "/effort":
           if (["low", "medium", "high"].includes(rest[0])) {
             effort = rest[0];
-            console.log(`reasoning effort: ${effort}`);
+            try {
+              saveConfig({ model_reasoning_effort: effort });
+              console.log(`reasoning effort: ${effort} (saved)`);
+            } catch {
+              console.log(`reasoning effort: ${effort}`);
+            }
           } else console.log("usage: /effort low|medium|high");
           continue;
         case "/verbosity":

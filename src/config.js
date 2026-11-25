@@ -1,7 +1,7 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { parseTOML } from "./toml.js";
+import { parseTOML, stringifyTOML } from "./toml.js";
 
 export const BUILTIN_PROVIDERS = {
   openai: {
@@ -165,4 +165,39 @@ export function getApiKey(provider) {
     );
   }
   return key;
+}
+
+export const userConfigPath = () => path.join(os.homedir(), ".rtools", "config.toml");
+
+// RFC-7396-style merge patch onto the parsed user config: an `undefined` value
+// deletes the key, objects merge recursively, everything else replaces.
+function mergePatch(target, patch) {
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) {
+      delete target[k];
+    } else if (v && typeof v === "object" && !Array.isArray(v) && target[k] && typeof target[k] === "object" && !Array.isArray(target[k])) {
+      mergePatch(target[k], v);
+    } else {
+      target[k] = v;
+    }
+  }
+  return target;
+}
+
+// Merge `patch` into ~/.rtools/config.toml and write it back. Comments in the
+// file are not preserved (the TOML subset has no comment support on write).
+export function saveConfig(patch, { configPath } = {}) {
+  const file = configPath || userConfigPath();
+  let current = {};
+  if (existsSync(file)) {
+    try {
+      current = parseTOML(readFileSync(file, "utf8"));
+    } catch {
+      current = {};
+    }
+  }
+  mergePatch(current, patch);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, stringifyTOML(current));
+  return file;
 }

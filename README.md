@@ -121,9 +121,32 @@ description: Что делает скилл
 
 ## Slash-команды в сессии
 
-`/help /init /review /plan /model /provider /policy /sandbox /prompts /tools /skills /status /diff /export /compact /resume /settings /effort /verbosity /permissions /clear /quit`
+`/help /init /review /plan /model /provider /agent /policy /sandbox /prompts /tools /skills /status /diff /export /compact /resume /settings /effort /verbosity /permissions /clear /quit`
 
 `/export [file]` сохраняет сессию в Markdown (чат и вызовы инструментов) — по умолчанию `rtools-session-<id>.md`. При приближении к лимиту контекстного окна (`context_window`, по умолчанию 128k) сессия ужимается автоматически — вручную вызывать `/compact` не нужно.
+
+### Провайдеры, модели, агенты
+
+Управление из TUI, выбор сохраняется в `~/.rtools/config.toml`:
+
+```
+/model <имя>              сменить модель (или saved-алиас)
+/model list               модели провайдера из API + saved-алиасы
+/model add <алиас> <id>   сохранить алиас модели
+/model rm <алиас>         удалить алиас
+
+/provider <id>            сменить провайдера (built-in или свой)
+/provider list            список провайдеров
+/provider add <id> <base_url> [env_key] [wire_api]   свой провайдер (wire_api: chat | responses | anthropic)
+/provider rm <id>         удалить своего провайдера
+
+/agent list               профили-агенты из [profile.*] в config.toml
+/agent add <имя>          сохранить текущие model+provider+effort+verbosity как профиль
+/agent use <имя>          применить профиль (модель, провайдер, размышление, verbosity)
+/agent rm <имя>           удалить профиль
+
+/effort low|medium|high   тип размышления (сохраняется в конфиг)
+```
 
 ## Интерфейс (TUI)
 
