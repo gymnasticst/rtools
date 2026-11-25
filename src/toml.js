@@ -41,13 +41,14 @@ function parseValue(s) {
   if (s === "false") return false;
   if (s[0] === "{") {
     const obj = {};
-    let depth = 0, start = 1, inStr = null, part = "";
+    const inner = s.slice(1, s.lastIndexOf("}"));
+    let depth = 0, inStr = null, part = "";
     const parts = [];
-    for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
+    for (let i = 0; i < inner.length; i++) {
+      const ch = inner[i];
       if (inStr) {
         part += ch;
-        if (ch === "\\") { part += s[++i]; continue; }
+        if (ch === "\\") { part += inner[++i]; continue; }
         if (ch === inStr) inStr = null;
       } else if (ch === '"' || ch === "'") { inStr = ch; part += ch; }
       else if (ch === "{" || ch === "[") { depth++; part += ch; }
@@ -59,7 +60,8 @@ function parseValue(s) {
     for (const item of parts) {
       const eq = item.indexOf("=");
       if (eq < 0) throw new Error(`TOML: bad inline table item: ${item}`);
-      obj[item.slice(0, eq).trim()] = parseValue(item.slice(eq + 1));
+      const rawKey = item.slice(0, eq).trim();
+      obj[/^["']/.test(rawKey) ? parseString(rawKey) : rawKey] = parseValue(item.slice(eq + 1));
     }
     return obj;
   }

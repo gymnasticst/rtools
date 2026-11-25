@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import path from "node:path";
 import { runAgentLoop, systemPrompt, buildContext, needsApproval } from "../src/agent.js";
 import { startREPL } from "../src/repl.js";
 import { execSync } from "node:child_process";
@@ -52,7 +53,8 @@ MCP plugin example:
 import { readFileSync as readFileSyncRaw } from "node:fs";
 
 function selfUpdate() {
-  const repo = process.env.RTOOLS_REPO || "YOUR_ORG/rtools";
+  const repo = process.env.RTOOLS_REPO || "gymnasticst/rtools";
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || repo.split("/").some((seg) => seg.startsWith("."))) throw new Error(`invalid RTOOLS_REPO (expected owner/repo): ${repo}`);
   console.log(`Updating RTools from ${repo}...`);
   execSync("curl -fsSL https://raw.githubusercontent.com/" + repo + "/main/install.sh | sh", { stdio: "inherit" });
 }
@@ -198,7 +200,7 @@ async function main() {
     return;
   }
   const command = opts._[0] && ["chat", "exec"].includes(opts._[0]) ? opts._[0] : "chat";
-  if (command === "exec" && opts._[0]) opts._.shift();
+  if (opts._[0] && ["chat", "exec"].includes(opts._[0])) opts._.shift();
   const prompt = opts._.join(" ");
 
   const ctx = await buildContext(opts);
@@ -224,7 +226,21 @@ async function main() {
       model: ctx.cfg.model,
       messages,
       tools: ctx.tools,
-      approval: ctx.cfg.approval_policy === "untrusted" ? "never" : ctx.cfg.approval_policy,
+      approval: ctx.cfg.approval_policy,
+      askApproval: async (tool) => {
+        if (!process.stdin.isTTY) return false;
+        process.stdout.write(`Allow ${tool.kind} tool "${tool.name}"? [y/n] `);
+        const answer = await new Promise((resolve) => {
+          const onData = (buf) => {
+            process.stdin.removeListener("data", onData);
+            process.stdin.pause();
+            resolve(buf.toString().trim().toLowerCase());
+          };
+          process.stdin.resume();
+          process.stdin.once("data", onData);
+        });
+        return answer === "y" || answer === "yes";
+      },
       sandbox: ctx.cfg.sandbox_mode,
       maxSteps: ctx.cfg.max_agent_steps || 40,
       settings: {

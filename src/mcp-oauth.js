@@ -5,7 +5,7 @@
 import { createServer } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -22,7 +22,9 @@ function readCache() {
 
 function writeCache(data) {
   mkdirSync(path.dirname(AUTH_CACHE), { recursive: true });
-  writeFileSync(AUTH_CACHE, JSON.stringify(data, null, 2));
+  const existed = existsSync(AUTH_CACHE);
+  writeFileSync(AUTH_CACHE, JSON.stringify(data, null, 2), { mode: 0o600 });
+  if (existed) chmodSync(AUTH_CACHE, 0o600); // mode only applies on creation
 }
 
 function b64url(buf) {

@@ -26,16 +26,16 @@ async function post(body) {
     });
     if (probe.status === 401) {
       token = await getMcpAccessToken(url, url);
-      return authorizedFetch(url, body, token);
+      return (await authorizedFetch(url, body, token)).text();
     }
     if (body.id === undefined) return null;
     const text = await probe.text();
     if (!probe.ok || !text.trim()) {
       throw new Error(`remote MCP ${probe.status} ${probe.statusText || ""}`.trim());
     }
-    return { text, status: probe.status };
+    return text;
   }
-  return authorizedFetch(url, body, token);
+  return (await authorizedFetch(url, body, token)).text();
 }
 
 function extractJson(text) {
@@ -49,7 +49,7 @@ async function handle(msg) {
     return null;
   }
   const res = await post(msg);
-  const text = typeof res === "string" ? res : res.text;
+  const text = typeof res === "string" ? res : await res.text();
   return extractJson(text);
 }
 

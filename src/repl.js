@@ -343,8 +343,9 @@ export async function startREPL(ctx) {
           const { resolveProvider, getApiKey } = await import("./config.js");
           try {
             const p = resolveProvider(ctx.cfg, rest[0]);
-            getApiKey(p);
+            const key = getApiKey(p);
             ctx.provider = p;
+            ctx.apiKey = key;
             console.log(`provider: ${p.id} (${p.wire_api})`);
           } catch (e) {
             console.log(e.message);

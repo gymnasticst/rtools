@@ -129,7 +129,8 @@ export async function pluginInstall(name) {
     : null;
   if (!src || !existsSync(src)) throw new Error(`plugin directory missing in marketplace cache: ${src}`);
 
-  const dest = path.join(INSTALLED_DIR(), plugin.name);
+  const safeName = plugin.name.replace(/[^A-Za-z0-9_-]/g, "_");
+  const dest = path.join(INSTALLED_DIR(), safeName);
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(path.dirname(dest), { recursive: true });
   cpSync(src, dest, { recursive: true });
@@ -143,10 +144,10 @@ export async function pluginInstall(name) {
     for (const [serverName, spec] of Object.entries(mcpServers || {})) {
       if (spec.type === "http" && spec.url) {
         const proxy = new URL("../bin/rtools-mcp-proxy.js", import.meta.url).pathname;
-        installed[`${plugin.name}_${serverName}`] = { command: "node", args: [proxy, "http", spec.url] };
+        installed[`${safeName}_${serverName}`] = { command: "node", args: [proxy, "http", spec.url] };
         note += `\nMCP server "${serverName}" (http: ${spec.url}) bridged to stdio`;
       } else if (spec.command) {
-        installed[`${plugin.name}_${serverName}`] = { command: spec.command, args: spec.args || [], env: spec.env || {} };
+        installed[`${safeName}_${serverName}`] = { command: spec.command, args: spec.args || [], env: spec.env || {} };
         note += `\nMCP server "${serverName}" (${spec.command}) registered`;
       }
     }
@@ -163,17 +164,21 @@ export async function pluginInstall(name) {
       }
     }
   }
-  return `plugin "${plugin.name}" v${plugin.version || "?"} installed to ${dest}${note || "\n(no MCP servers or skills in this plugin)"}`;
+  return `plugin "${safeName}" v${plugin.version || "?"} installed to ${dest}${note || "\n(no MCP servers or skills in this plugin)"}`;
+}
+
+function tomlString(value) {
+  return `"${String(value).replace(/[\\"\n\r\t]/g, (ch) => `\\${{ "\\": "\\", '"': '"', "\n": "n", "\r": "r", "\t": "t" }[ch]}`)}"`;
 }
 
 function writeInstalled(servers) {
   const lines = [];
   for (const [name, spec] of Object.entries(servers)) {
     lines.push(`[mcp_servers.${name}]`);
-    lines.push(`command = "${spec.command}"`);
-    if (spec.args?.length) lines.push(`args = ${JSON.stringify(spec.args)}`);
+    lines.push(`command = ${tomlString(spec.command)}`);
+    if (spec.args?.length) lines.push(`args = [${spec.args.map((a) => tomlString(a)).join(", ")}]`);
     if (spec.env && Object.keys(spec.env).length) {
-      lines.push(`env = { ${Object.entries(spec.env).map(([k, v]) => `${k} = "${v}"`).join(", ")} }`);
+      lines.push(`env = { ${Object.entries(spec.env).map(([k, v]) => `${/^[A-Za-z0-9_-]+$/.test(k) ? k : tomlString(k)} = ${tomlString(v)}`).join(", ")} }`);
     }
     lines.push("");
   }
@@ -273,8 +278,12 @@ export async function skillInstall(source) {
 }
 
 export function skillRemove(name) {
+  if (name.includes("..") || name.includes("/") || name.includes("\\") || path.isAbsolute(name)) {
+    throw new Error(`invalid skill name: ${name}`);
+  }
   for (const dir of [SKILLS_DIR(), path.join(process.cwd(), ".rtools", "skills")]) {
     const target = path.join(dir, name);
+    if (!target.startsWith(dir + path.sep)) throw new Error(`invalid skill name: ${name}`);
     if (existsSync(target)) {
       rmSync(target, { recursive: true, force: true });
       return `skill "${name}" removed from ${dir}`;
