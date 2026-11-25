@@ -536,5 +536,48 @@ if (failures === 0) {
   if (!failures) console.log("SEARCH : web_search uses execFile argv, no shell templates");
 }
 
+// Case 15: write/edit must refuse paths escaping the workspace; fetch must
+// re-check the SSRF guard on every redirect hop (a public URL that 302s to the
+// metadata address used to slip through fetch's redirect: "follow").
+{
+  const { builtinTools } = await import("../src/tools.js");
+  const cwd = mkdtempSync(path.join(tmpdir(), "rtools-write-"));
+  const tools = builtinTools({ cwd, skills: [] });
+  const write = tools.find((t) => t.name === "write_file");
+  const edit = tools.find((t) => t.name === "edit");
+  try {
+    if (!write || !edit) { console.error("FAIL: write/edit tools not found"); failures++; }
+    else {
+      const out = await write.handler({ path: "../escaped.txt", content: "pwned" });
+      if (!/escapes working directory/.test(out)) { console.error(`FAIL: write ../ not refused (out=${out})`); failures++; }
+      if (existsSync(path.join(path.dirname(cwd), "escaped.txt"))) { console.error("FAIL: write escaped cwd"); failures++; }
+      const out2 = await edit.handler({ path: "../escaped.txt", old_string: "a", new_string: "b" });
+      if (!/escapes working directory/.test(out2)) { console.error(`FAIL: edit ../ not refused (out=${out2})`); failures++; }
+      const okw = await write.handler({ path: "sub/dir/ok.txt", content: "fine" });
+      if (/Error/i.test(okw) || !existsSync(path.join(cwd, "sub", "dir", "ok.txt"))) { console.error(`FAIL: legit nested write broken (out=${okw})`); failures++; }
+    }
+
+    // redirect hop onto a blocked host must be refused
+    let redir;
+    const redirUrl = await new Promise((resolve) => {
+      redir = http.createServer((req, res) => {
+        res.writeHead(302, { location: "http://169.254.169.254/latest/meta-data" });
+        res.end();
+      });
+      redir.listen(0, "127.0.0.1", () => resolve(`http://127.0.0.1:${redir.address().port}/jump`));
+    });
+    const f2 = tools.find((t) => t.name === "fetch");
+    try {
+      const out3 = await f2.handler({ url: redirUrl });
+      if (!/blocked/.test(out3)) { console.error(`FAIL: redirect to metadata host not blocked (out=${out3})`); failures++; }
+    } finally {
+      redir.close(); redir.closeAllConnections();
+    }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+  if (!failures) console.log("TOOLS  : write/edit containment; fetch re-checks SSRF on redirects");
+}
+
 console.log("ALL_PROXY_TESTS_PASSED");
 process.exit(failures ? 1 : 0); // undici keep-alive sockets to the fake IdP would otherwise hold the event loop open

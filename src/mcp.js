@@ -21,6 +21,9 @@ export class McpConnection {
     this.child.stderr.on("data", (d) => {
       stderr += d;
     });
+    // a server that just died makes stdin emit EPIPE; swallow it once — the
+    // exit listener already rejects every pending request with a clear error
+    this.child.stdin.on("error", () => {});
     // Exit listener stays alive for the whole connection lifetime: it records
     // the exit and fails every pending request instead of leaving it to hang
     // until the request timeout.
@@ -105,9 +108,6 @@ export class McpConnection {
   }
 
   send(obj) {
-    // a server that just died makes stdin emit EPIPE; swallow it — the exit
-    // listener already rejects every pending request with a clear error
-    this.child.stdin.on("error", () => {});
     this.child.stdin.write(JSON.stringify(obj) + "\n");
   }
 

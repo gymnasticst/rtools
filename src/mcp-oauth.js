@@ -87,6 +87,9 @@ function authorizeAndWaitForCode({ metadata, client, serverUrl, verifier }) {
       settled = true;
       clearTimeout(timer);
       server.close();
+      // keep-alive connections (an already-open browser tab) would otherwise
+      // keep the event loop alive after the flow ended
+      server.closeAllConnections?.();
       fn(arg);
     };
     const fail = (err) => settle(reject, err);

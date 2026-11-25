@@ -54,6 +54,16 @@ export function removeMarketplace(name) {
   return kept.length !== list.length ? `marketplace "${name}" removed` : `marketplace "${name}" not found`;
 }
 
+// Join a marketplace-controlled relative path under a trusted root, refusing
+// traversal (`../`) escapes — catalog entries are remote-controlled input.
+function safeJoin(root, rel) {
+  const abs = path.resolve(root, rel);
+  if (abs !== path.resolve(root) && !abs.startsWith(path.resolve(root) + path.sep)) {
+    throw new Error(`marketplace path escapes cache root: ${rel}`);
+  }
+  return abs;
+}
+
 function cloneRepo({ repo, ref }, dest, sparsePaths) {
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(path.dirname(dest), { recursive: true });
@@ -70,7 +80,7 @@ function cloneRepo({ repo, ref }, dest, sparsePaths) {
 async function loadCatalog(marketplace) {
   const dest = path.join(CACHE_DIR(), marketplace.name.replace(/[^A-Za-z0-9_-]/g, "_"));
   if (!existsSync(dest)) cloneRepo(marketplace, dest);
-  const catalogPath = path.join(dest, marketplace.catalog);
+  const catalogPath = safeJoin(dest, marketplace.catalog);
   if (!existsSync(catalogPath)) throw new Error(`marketplace catalog not found: ${catalogPath}`);
   const catalog = readJson(catalogPath);
   return { marketplace, root: dest, catalog };
@@ -90,7 +100,7 @@ export async function marketplaceList(query) {
         };
         // enrich from the plugin manifest when cheap to do so
         const manifestPath = entry.source?.path
-          ? path.join(CACHE_DIR(), m.name.replace(/[^A-Za-z0-9_-]/g, "_"), entry.source.path, ".codex-plugin", "plugin.json")
+          ? path.join(safeJoin(path.join(CACHE_DIR(), m.name.replace(/[^A-Za-z0-9_-]/g, "_")), entry.source.path.replace(/^\.\//, "")), ".codex-plugin", "plugin.json")
           : null;
         if (manifestPath && existsSync(manifestPath)) {
           try {
@@ -127,7 +137,7 @@ export async function pluginInstall(name) {
   const m = listMarketplaces().find((x) => x.name === plugin.marketplace) || DEFAULT_MARKETPLACE;
   const cacheRoot = path.join(CACHE_DIR(), m.name.replace(/[^A-Za-z0-9_-]/g, "_"));
   const src = plugin.source?.path
-    ? path.join(cacheRoot, plugin.source.path.replace(/^\.\//, ""))
+    ? safeJoin(cacheRoot, plugin.source.path.replace(/^\.\//, ""))
     : null;
   if (!src || !existsSync(src)) throw new Error(`plugin directory missing in marketplace cache: ${src}`);
 
@@ -255,7 +265,11 @@ function parseSkillFile(text) {
 // `rtools skill install <name|owner/repo|marketplace-plugin>` — installs a
 // skill repo or a plugin from a connected marketplace by cloning it.
 export async function skillInstall(source) {
-  const target = path.join(SKILLS_DIR(), source.split("/").pop().replace(/\.git$/, ""));
+  // the destination dir must be a safe single path segment under SKILLS_DIR —
+  // `..`, `/` and absolute paths must never reach path.join below
+  const safeName = source.split("/").pop().replace(/\.git$/, "").replace(/[^A-Za-z0-9_-]/g, "_");
+  if (!safeName) throw new Error(`invalid skill source: ${source}`);
+  const target = path.join(SKILLS_DIR(), safeName);
   if (existsSync(target)) throw new Error(`skill "${source}" already installed at ${target} (remove first)`);
   let repo;
   if (source.startsWith("http") || source.startsWith("git@")) repo = source;
@@ -266,7 +280,7 @@ export async function skillInstall(source) {
     if (!plugin) throw new Error(`skill source "${source}" not found (use owner/repo or a marketplace plugin name)`);
     const m = listMarketplaces().find((x) => x.name === plugin.marketplace) || DEFAULT_MARKETPLACE;
     const cacheRoot = path.join(CACHE_DIR(), m.name.replace(/[^A-Za-z0-9_-]/g, "_"));
-    const src = plugin.source?.path ? path.join(cacheRoot, plugin.source.path.replace(/^\.\//, "")) : null;
+    const src = plugin.source?.path ? safeJoin(cacheRoot, plugin.source.path.replace(/^\.\//, "")) : null;
     if (!src || !existsSync(src)) throw new Error(`plugin directory missing: ${src}`);
     const skillsSrc = path.join(src, "skills");
     if (!existsSync(skillsSrc)) throw new Error(`plugin "${source}" has no skills/ directory`);

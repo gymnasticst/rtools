@@ -1,4 +1,3 @@
-import { exec } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { execWithSandbox } from "./sandbox.js";
@@ -53,8 +52,13 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
       },
       handler: async ({ command, __sandboxMode }) => {
         const env = buildShellEnv(cfg?.shell_environment_policy);
-        const { code, stdout, stderr, sandboxed } = await execWithSandbox({ command, cwd, mode: __sandboxMode || sandboxMode, env });
-        let out = `exit code: ${code}${sandboxed ? " (sandboxed)" : ""}\n`;
+        const { code, stdout, stderr, sandboxed, timedOut, spawnError, refused } = await execWithSandbox({ command, cwd, mode: __sandboxMode || sandboxMode, env });
+        let out = `exit code: ${code}`;
+        if (timedOut) out += " (timed out)";
+        if (spawnError) out += " (spawn error)";
+        if (refused) out += " (refused by sandbox)";
+        if (sandboxed) out += " (sandboxed)";
+        out += "\n";
         if (stdout) out += `stdout:\n${stdout}`;
         if (stderr) out += `stderr:\n${stderr}`;
         return truncate(out.trim());
@@ -95,6 +99,9 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
       },
       handler: async ({ path: file, content }) => {
         const abs = path.resolve(cwd, file);
+        // same containment as apply_patch: writes must stay inside the workspace
+        const rel = path.relative(path.resolve(cwd), abs);
+        if (rel.startsWith("..") || path.isAbsolute(rel)) return `Error: path escapes working directory: ${file}`;
         await mkdir(path.dirname(abs), { recursive: true });
         await writeFile(abs, content, "utf8");
         return `Wrote ${content.length} bytes to ${file}`;
@@ -252,6 +259,9 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
       },
       handler: async ({ path: file, old_string: oldStr, new_string: newStr, replace_all: all = false }) => {
         const abs = path.resolve(cwd, file);
+        // same containment as apply_patch: edits must stay inside the workspace
+        const rel = path.relative(path.resolve(cwd), abs);
+        if (rel.startsWith("..") || path.isAbsolute(rel)) return `Error: path escapes working directory: ${file}`;
         const content = await readFile(abs, "utf8");
         const occurrences = content.split(oldStr).length - 1;
         if (occurrences === 0) return `Error: old_string not found in ${file}`;
@@ -305,28 +315,46 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
       },
       handler: async ({ url: target, max_chars: max = 8000 }) => {
         if (!/^https?:\/\//.test(target)) return "Error: url must start with http:// or https://";
-        let host;
-        try {
-          host = new URL(target).hostname;
-        } catch {
-          return "Error: invalid url";
+        // SSRF guard per hop: no loopback, private, link-local or cloud-metadata
+        // hosts. Redirects are followed manually so every hop is re-checked —
+        // a public URL that 302s to 169.254.169.254 used to slip through.
+        const isPrivateHost = (host) => {
+          const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+          if (h === "localhost" || h === "metadata.google.internal") return true;
+          if (h.endsWith(".local") || h.endsWith(".internal")) return true;
+          if (h.includes(":")) {
+            // IPv6: loopback ::1, unspecified ::, unique-local fc00::/7, link-local fe80::/10
+            return h === "::1" || h === "::" || /^f[cd][0-9a-f]{0,3}:/.test(h) || /^fe[89ab][0-9a-f]?(:|$)/.test(h);
+          }
+          return (
+            /^127\./.test(h) ||
+            /^10\./.test(h) ||
+            /^192\.168\./.test(h) ||
+            /^169\.254\./.test(h) ||
+            /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
+            /^0\./.test(h) ||
+            /^\d+$/.test(h) // integer host form (e.g. http://2130706433/ = 127.0.0.1)
+          );
+        };
+        let current = target;
+        let res;
+        for (let hops = 0; ; hops++) {
+          let u;
+          try {
+            u = new URL(current);
+          } catch {
+            return "Error: invalid url";
+          }
+          if (!/^https?:$/.test(u.protocol)) return "Error: only http(s) urls are fetched";
+          if (isPrivateHost(u.hostname)) return `Error: fetching private/loopback addresses is blocked (${u.hostname})`;
+          if (hops >= 6) return "Error: too many redirects";
+          res = await fetch(current, { signal: AbortSignal.timeout(20000), redirect: "manual" });
+          if ([301, 302, 303, 307, 308].includes(res.status) && res.headers.get("location")) {
+            current = new URL(res.headers.get("location"), current).toString();
+            continue;
+          }
+          break;
         }
-        // SSRF guard: no loopback, private, link-local or cloud-metadata hosts
-        const hostLc = host.toLowerCase();
-        const isPrivate =
-          hostLc === "localhost" ||
-          hostLc === "metadata.google.internal" ||
-          hostLc.endsWith(".local") ||
-          hostLc.endsWith(".internal") ||
-          /^\[?\]?::1$/.test(hostLc) ||
-          /^127\./.test(hostLc) ||
-          /^10\./.test(hostLc) ||
-          /^192\.168\./.test(hostLc) ||
-          /^169\.254\./.test(hostLc) ||
-          /^172\.(1[6-9]|2\d|3[01])\./.test(hostLc) ||
-          /^0\./.test(hostLc);
-        if (isPrivate) return "Error: fetching private/loopback addresses is blocked";
-        const res = await fetch(target, { signal: AbortSignal.timeout(20000), redirect: "follow" });
         // cap the download: read at most a few MB so a huge body can't blow memory
         const capped = await capBody(res, 4 * 1024 * 1024);
         const raw = capped;
