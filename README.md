@@ -1,6 +1,6 @@
 # RTools CLI
 
-RTools — CLI-агент для программирования: интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
+RTools — CLI-агент для программирования (команда `rt`; `rtools` работает как алиас): интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
 [![CI](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml/badge.svg)](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-0.1.14-blue)
@@ -29,21 +29,21 @@ curl -fsSL https://raw.githubusercontent.com/gymnasticst/rtools/main/install.sh 
 
 Требуется Node 22+. Скрипт ставит бинарь в `~/.local/bin` (меняется через `RTOOLS_PREFIX` или `--prefix`), конкретную версию можно зафиксировать: `install.sh --version vX.Y.Z`.
 
-Обновление: `rtools --update`.
+Обновление: `rt --update`. Удаление: `rt uninstall` (данные в `~/.rtools` остаются; `rt uninstall --with-data` удаляет и их).
 
 Локальная разработка:
 
 ```bash
 git clone https://github.com/gymnasticst/rtools && cd rtools
 npm install
-npm link        # делает команду rtools доступной глобально
+npm link        # делает команды rt и rtools доступными глобально
 ```
 
 ## Быстрый старт
 
 ```bash
-rtools                          # интерактивная сессия (по умолчанию)
-rtools exec "объясни Makefile"  # one-shot запуск без UI
+rt                          # интерактивная сессия (по умолчанию)
+rt exec "объясни Makefile"  # one-shot запуск без UI
 ```
 
 При первом запуске создайте `~/.rtools/config.toml` (см. ниже) и задайте ключ провайдера в переменной окружения, указанной в `env_key`.
@@ -51,8 +51,8 @@ rtools exec "объясни Makefile"  # one-shot запуск без UI
 ## Флаги CLI
 
 ```
-rtools [chat] [промпт]    интерактивная сессия (по умолчанию)
-rtools exec "<промпт>"    one-shot запуск без интерфейса
+rt [chat] [промпт]    интерактивная сессия (по умолчанию)
+rt exec "<промпт>"    one-shot запуск без интерфейса
 --approval <mode>         untrusted | never | always
 --profile <name>          профиль из [profile.<name>]
 --add-dir <dir>           дополнительная доступная на запись папка (можно повторять)
@@ -103,8 +103,8 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 ## MCP-серверы и плагины
 
 ```bash
-rtools plugin install <name>                 # например linear, slack, stripe, github
-rtools plugin marketplace add owner/repo     # свой маркетплейс скиллов и плагинов
+rt plugin install <name>                 # например linear, slack, stripe, github
+rt plugin marketplace add owner/repo     # свой маркетплейс скиллов и плагинов
 ```
 
 ## Скиллы

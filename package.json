@@ -1,9 +1,10 @@
 {
   "name": "rtools",
-  "version": "0.1.14",
+  "version": "0.3.0",
   "description": "RTools — CLI coding agent with pluggable model providers, MCP plugins and skills",
   "type": "module",
   "bin": {
+    "rt": "./bin/rtools.js",
     "rtools": "./bin/rtools.js"
   },
   "engines": {

@@ -57,9 +57,33 @@ export function selfUpdate() {
     mkdirSync(lib, { recursive: true });
     cpSync(path.join(pkg, "bin"), path.join(lib, "bin"), { recursive: true });
     cpSync(path.join(pkg, "src"), path.join(lib, "src"), { recursive: true });
+    writeFileSync(path.join(prefix, "rt"), `#!/bin/sh\nexec node "${lib}/bin/rtools.js" "$@"\n`, { mode: 0o755 });
     writeFileSync(path.join(prefix, "rtools"), `#!/bin/sh\nexec node "${lib}/bin/rtools.js" "$@"\n`, { mode: 0o755 });
     console.log(`Updated RTools to ${tag} (checksum verified).`);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// uninstall: remove the launchers, the installed library and (optionally, with
+// --with-data) ~/.rtools session data. Refuses to touch a package-manager
+// installation (global npm) — uninstall it with npm instead.
+export function selfUninstall({ withData = false } = {}) {
+  const prefix = process.env.RTOOLS_PREFIX || path.join(os.homedir(), ".local", "bin");
+  const lib = path.join(prefix, "lib-rtools");
+  const targets = [path.join(prefix, "rt"), path.join(prefix, "rtools"), lib];
+  if (!targets.some(existsSync)) {
+    console.log("RTools is not installed in the default location (or already removed).");
+    console.log("If installed via npm, remove it with: npm rm -g rtools");
+    return;
+  }
+  for (const t of targets) rmSync(t, { recursive: true, force: true });
+  console.log(`Removed ${targets.join(", ")}`);
+  if (withData) {
+    const data = path.join(os.homedir(), ".rtools");
+    rmSync(data, { recursive: true, force: true });
+    console.log(`Removed session data: ${data}`);
+  } else {
+    console.log("Session data kept in ~/.rtools — remove it with: rt uninstall --with-data");
   }
 }

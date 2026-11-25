@@ -5,22 +5,23 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import { runAgentLoop, systemPrompt, buildContext, needsApproval } from "../src/agent.js";
 import { startREPL } from "../src/repl.js";
-import { selfUpdate } from "../src/update.js";
+import { selfUpdate, selfUninstall } from "../src/update.js";
 import { marketplaceList, marketplaceInfo, pluginInstall, pluginRemove, pluginInstalledNames, listMarketplaces, addMarketplace, removeMarketplace, listSkills, skillInstall, skillRemove } from "../src/marketplace.js";
 import { DEFAULT_SKILLS_DIRS } from "../src/config.js";
 
 const USAGE = `RTools — CLI coding agent
 
 Usage:
-  rtools [chat] [options]            interactive session (Codex-style)
-  rtools exec "<prompt>" [options]   one-shot non-interactive run
-  rtools plugin list|search <q>      browse the plugin marketplace (MCP + skills)
-  rtools plugin install <name>       enable a plugin
-  rtools plugin remove <name>        disable a plugin
-  rtools plugin info <name>          plugin details
+  rt [chat] [options]                interactive session (Codex-style)
+  rt exec "<prompt>" [options]       one-shot non-interactive run
+  rt plugin list|search <q>          browse the plugin marketplace (MCP + skills)
+  rt plugin install <name>           enable a plugin
+  rt plugin remove <name>            disable a plugin
+  rt plugin info <name>              plugin details
   rtools skill list|show <name>      manage skills (installed ones load into the agent)
   rtools skill install <src>         install a skill: owner/repo, git URL or marketplace plugin
   rtools skill remove <name>         remove a skill
+  rtools uninstall [--with-data]     remove RTools (data = ~/.rtools sessions/config)
   rtools --help | --version
 
 Options:
@@ -79,6 +80,8 @@ function parseArgs(argv) {
     else if (a === "-i" || a === "--image") (opts.images ||= []).push(readImageFile(argv[++i]));
     else if (a === "--add-dir") (opts.addDirs ||= []).push(argv[++i]);
     else if (a === "--update") opts.update = true;
+    else if (a === "--uninstall") opts.uninstall = true;
+    else if (a === "--with-data") opts.withData = true;
     else if (a === "--help" || a === "-h") opts.help = true;
     else if (a === "--version") opts.version = true;
     else opts._.push(a);
@@ -185,6 +188,10 @@ async function main() {
   }
   if (opts.update) {
     selfUpdate();
+    return;
+  }
+  if (opts.uninstall || opts._[0] === "uninstall") {
+    selfUninstall({ withData: opts.withData });
     return;
   }
   if (opts._[0] === "plugin") {

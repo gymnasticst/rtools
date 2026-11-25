@@ -2,6 +2,7 @@
 # RTools installer — one-line install like Codex/OpenCode:
 #   curl -fsSL https://raw.githubusercontent.com/gymnasticst/rtools/main/install.sh | sh
 # or: curl -fsSL .../install.sh -o install.sh && sh install.sh [--version vX]
+# Installs the primary command `rt` plus `rtools` as an alias.
 set -eu
 
 REPO="${RTOOLS_REPO:-gymnasticst/rtools}"
@@ -63,9 +64,14 @@ if [ -z "${SRC:-}" ]; then
 fi
 
 mkdir -p "$PREFIX"
-# rtools is dependency-free Node — copy bin/ + src/ and add a launcher.
+# rtools is dependency-free Node — copy bin/ + src/ and add launchers.
 cp -r "$SRC/bin" "$SRC/src" "$TMP/pkg" 2>/dev/null || { mkdir -p "$TMP/pkg"; cp -r "$SRC/bin" "$SRC/src" "$TMP/pkg/"; }
 cp -r "$TMP/pkg" "$PREFIX/lib-rtools" 2>/dev/null || { rm -rf "$PREFIX/lib-rtools"; cp -r "$TMP/pkg" "$PREFIX/lib-rtools"; }
+cat > "$PREFIX/rt" <<LAUNCHER
+#!/bin/sh
+exec node "$PREFIX/lib-rtools/bin/rtools.js" "\$@"
+LAUNCHER
+chmod +x "$PREFIX/rt"
 cat > "$PREFIX/rtools" <<LAUNCHER
 #!/bin/sh
 exec node "$PREFIX/lib-rtools/bin/rtools.js" "\$@"
@@ -80,4 +86,4 @@ case ":$PATH:" in
     ;;
 esac
 
-say "Done. Verify: $(command -v "$PREFIX/rtools" >/dev/null && true)$(rtools --version 2>/dev/null || "$PREFIX/rtools" --version)"
+say "Done. Verify: $(command -v "$PREFIX/rt" >/dev/null && true)$(rt --version 2>/dev/null || "$PREFIX/rt" --version)"
