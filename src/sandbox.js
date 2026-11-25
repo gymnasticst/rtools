@@ -40,8 +40,8 @@ function bwrapArgs({ mode, cwd }) {
 
 export async function execWithSandbox({ command, cwd, mode, env = process.env, timeout = 120000 }) {
   if (mode === "danger") {
-    const { code, stdout, stderr } = await runRaw(["bash", "-lc", command], { cwd, env, timeout });
-    return { code, stdout, stderr, sandboxed: false };
+    const r = await runRaw(["bash", "-lc", command], { cwd, env, timeout });
+    return { ...r, sandboxed: false };
   }
   if (!bwrapAvailable()) {
     return {
@@ -53,23 +53,36 @@ export async function execWithSandbox({ command, cwd, mode, env = process.env, t
     };
   }
   const argv = ["bwrap", ...bwrapArgs({ mode, cwd }), "--", "bash", "-lc", command];
-  const { code, stdout, stderr } = await runRaw(argv, { cwd, env, timeout });
-  return { code, stdout, stderr, sandboxed: true };
+  const r = await runRaw(argv, { cwd, env, timeout });
+  return { ...r, sandboxed: true };
 }
 
 function runRaw(argv, { cwd, env, timeout }) {
   return new Promise((resolve) => {
     const child = spawn(argv[0], argv.slice(1), { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "", stderr = "";
-    const timer = setTimeout(() => child.kill("SIGKILL"), timeout);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeout);
     child.stdout.on("data", (d) => (stdout += d));
     child.stderr.on("data", (d) => (stderr += d));
     child.on("error", (e) => {
       clearTimeout(timer);
-      resolve({ code: 127, stdout: "", stderr: e.message });
+      resolve({ code: 127, stdout: "", stderr: e.message, spawnError: true });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      if (timedOut) {
+        resolve({
+          code: 124,
+          stdout,
+          stderr: stderr + (stderr ? "\n" : "") + `command timed out after ${timeout}ms and was killed`,
+          timedOut: true,
+        });
+        return;
+      }
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });

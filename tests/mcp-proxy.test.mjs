@@ -337,5 +337,29 @@ if (failures === 0) {
   if (!failures) console.log("CONFIG : project config loads only for trusted projects");
 }
 
+// Case 9: runRaw must distinguish a timeout from an ordinary command failure
+// (regression: SIGKILL on timeout resolved as code 1 with no marker, and spawn
+// errors were indistinguishable from the bwrap refusal — both code 127).
+{
+  const { execWithSandbox } = await import("../src/sandbox.js");
+  const cwd = mkdtempSync(path.join(tmpdir(), "rtools-sbx-"));
+  try {
+    const slow = await execWithSandbox({ command: "sleep 5", cwd, mode: "danger", timeout: 200 });
+    if (slow.code !== 124) { console.error(`FAIL: timeout not reported as code 124 (got ${slow.code})`); failures++; }
+    if (!slow.timedOut) { console.error("FAIL: timedOut marker missing on timeout"); failures++; }
+    if (!/timed out/.test(slow.stderr)) { console.error("FAIL: no timeout note in stderr"); failures++; }
+
+    const fast = await execWithSandbox({ command: "exit 3", cwd, mode: "danger", timeout: 5000 });
+    if (fast.code !== 3 || fast.timedOut) { console.error(`FAIL: normal exit mangled (code=${fast.code}, timedOut=${fast.timedOut})`); failures++; }
+
+    const bad = await execWithSandbox({ command: "true", cwd, mode: "read-only", env: { PATH: "/nonexistent" } });
+    if (!bad.spawnError) { console.error("FAIL: spawn failure not marked with spawnError"); failures++; }
+    if (bad.refused) { console.error("FAIL: spawn failure mislabeled as bwrap refusal"); failures++; }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+  if (!failures) console.log("SBX    : timeout reported as code 124 + timedOut, distinct from refusal");
+}
+
 
 console.log("ALL_PROXY_TESTS_PASSED");
