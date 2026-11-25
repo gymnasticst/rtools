@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npm version --no-git-tag-version "$VERSION"
+          mkdir -p release
+          npm pack --pack-destination release/
+          mv "release/rtools-${VERSION}.tgz" "release/rtools-v${VERSION}.tgz"
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.tgz
+      - name: npm publish
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

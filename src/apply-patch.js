@@ -1,0 +1,135 @@
+// apply_patch: Codex-style V4A patch format.
+// *** Begin Patch / *** Update File: <path> / @@ context / +/- lines / *** End Patch
+// Also supports *** Add File and *** Delete File.
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+function parsePatch(patchText) {
+  const lines = patchText.split("\n").map((l) => l.replace(/\r$/, ""));
+  const start = lines.findIndex((l) => l.trim() === "*** Begin Patch");
+  if (start === -1) throw new Error("patch must start with `*** Begin Patch`");
+  const end = lines.findIndex((l) => l.trim() === "*** End Patch");
+  if (end === -1) throw new Error("patch must end with `*** End Patch`");
+  const body = lines.slice(start + 1, end);
+
+  const hunks = [];
+  let cur = null;
+  for (const line of body) {
+    if (line.startsWith("*** Add File: ")) {
+      cur = { type: "add", path: line.slice(13).trim(), lines: [] };
+      hunks.push(cur);
+    } else if (line.startsWith("*** Delete File: ")) {
+      hunks.push({ type: "delete", path: line.slice(17).trim() });
+      cur = null;
+    } else if (line.startsWith("*** Update File: ")) {
+      cur = { type: "update", path: line.slice(16).trim(), chunks: [], chunk: null };
+      hunks.push(cur);
+    } else if (line.startsWith("@@")) {
+      if (!cur || cur.type !== "update") throw new Error("@@ outside Update File");
+      cur.chunk = { context: line.replace(/^@@\s*/, "").trim(), lines: [] };
+      cur.chunks.push(cur.chunk);
+    } else if (line.startsWith("***")) {
+      throw new Error(`unsupported patch directive: ${line}`);
+    } else if (line.trim() === "") {
+      continue;
+    } else if (cur) {
+      if (cur.type === "add") cur.lines.push(line);
+      else if (cur.chunk) cur.chunk.lines.push(line);
+      else throw new Error("patch lines before @@ in Update File");
+    }
+  }
+  return hunks;
+}
+
+function matchLine(content, index, text) {
+  // match a context/del line, allowing a leading space (context) or "-" (remove)
+  const stripped = text.slice(1);
+  return content[index] === stripped;
+}
+
+function applyUpdate(content, chunks) {
+  const contentLines = content.split("\n");
+  for (const chunk of chunks) {
+    const ctxLines = chunk.lines.filter((l) => l.startsWith(" ") || l.startsWith("-"));
+    const find = ctxLines.length
+      ? ctxLines.map((l) => l.slice(1))
+      : [];
+    if (!find.length) {
+      // no removal context: append at end
+      contentLines.push(...chunk.lines.filter((l) => l.startsWith("+")).map((l) => l.slice(1)));
+      continue;
+    }
+    let at = -1;
+    outer: for (let i = 0; i <= contentLines.length - find.length; i++) {
+      for (let j = 0; j < find.length; j++) {
+        if (contentLines[i + j] !== find[j]) continue outer;
+      }
+      at = i;
+      break;
+    }
+    if (at === -1) throw new Error(`context not found: ${find[0].slice(0, 60)}`);
+    const replacements = [];
+    for (const l of chunk.lines) {
+      if (l.startsWith("-")) continue;
+      if (l.startsWith("+")) replacements.push(l.slice(1));
+      else replacements.push(l.slice(1));
+    }
+    contentLines.splice(at, find.length, ...replacements);
+  }
+  return contentLines.join("\n");
+}
+
+export function applyPatchTool({ cwd }) {
+  return {
+    name: "apply_patch",
+    kind: "write",
+    description:
+      "Apply a Codex-style V4A patch to create, update or delete files. Format: '*** Begin Patch', " +
+      "'*** Add File: <path>' with '+' lines, '*** Update File: <path>' with '@@' context and +/- lines, " +
+      "'*** Delete File: <path>', '*** End Patch'.",
+    parameters: {
+      type: "object",
+      properties: { patch: { type: "string", description: "The full patch text" } },
+      required: ["patch"],
+    },
+    handler: async ({ patch }) => {
+      const hunks = parsePatch(patch);
+      const results = [];
+      for (const hunk of hunks) {
+        const abs = path.resolve(cwd, hunk.path);
+        if (!abs.startsWith(path.resolve(cwd))) throw new Error(`path escapes working directory: ${hunk.path}`);
+        if (hunk.type === "add") {
+          await mkdir(path.dirname(abs), { recursive: true });
+          await writeFile(abs, hunk.lines.map((l) => (l.startsWith("+") ? l.slice(1) : l)).join("\n"), "utf8");
+          results.push(`A ${hunk.path}`);
+        } else if (hunk.type === "delete") {
+          await rm(abs);
+          results.push(`D ${hunk.path}`);
+        } else {
+          const before = await readFile(abs, "utf8");
+          const after = applyUpdate(before, hunk.chunks);
+          if (after === before) results.push(`(no change) ${hunk.path}`);
+          else {
+            await writeFile(abs, after, "utf8");
+            results.push(`M ${hunk.path}`);
+          }
+        }
+      }
+      return `success. Updated files:\n${results.join("\n")}`;
+    },
+  };
+}
+
+// Used for sandbox checks and /diff
+export async function changedFilesSince({ cwd, git = true }) {
+  if (!git) return [];
+  const { exec } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const run = promisify(exec);
+  try {
+    const { stdout } = await run("git status --porcelain", { cwd });
+    return stdout.split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
