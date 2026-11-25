@@ -3,7 +3,7 @@
 RTools — CLI-агент для программирования: интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
 [![CI](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml/badge.svg)](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.1.12-blue)
+![Version](https://img.shields.io/badge/version-0.1.13-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-blue)
 
 ## Содержание
@@ -218,6 +218,8 @@ CI (`.github/workflows/ci.yml`) гоняет `npm test` на каждый push �
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## История версий
+
+- `v0.1.13` — Add openclaude-derived features: smart routing, agent todos, monitor, cron, stats, keybindings, auto-compact, goal mode, session export, worktrees, LSP, vim mode, i18n, project memory, remote ssh sessions (2026-11-25)
 
 - `v0.1.12` — Fix silent approval bypass in delegate sub-agents (2026-11-25)
 
