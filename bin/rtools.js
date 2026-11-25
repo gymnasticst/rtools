@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import path from "node:path";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 import { runAgentLoop, systemPrompt, buildContext, needsApproval } from "../src/agent.js";
 import { startREPL } from "../src/repl.js";
 import { selfUpdate } from "../src/update.js";
@@ -173,7 +176,7 @@ async function pluginCommand(args) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.version) {
-    console.log("rtools 0.1.0");
+    console.log(`rtools ${require("../package.json").version}`);
     return;
   }
   if (opts.help) {
