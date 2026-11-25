@@ -6,7 +6,7 @@ export function createUsage() {
 }
 
 export function addUsage(tracker, u) {
-  if (!u) return;
+  if (!tracker || !u) return;
   tracker.input += u.input_tokens || 0;
   tracker.output += u.output_tokens || 0;
 }

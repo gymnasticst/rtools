@@ -31,7 +31,7 @@ export function vimKey(st, key) {
   if (key.sequence === "$") { st.cursor = Math.max(0, st.line.length - 1); return true; }
   if (key.name === "left" || key.sequence === "h") { st.cursor = Math.max(0, st.cursor - 1); return true; }
   if (key.name === "right" || key.sequence === "l") { st.cursor = Math.min(Math.max(0, st.line.length - 1), st.cursor + 1); return true; }
-  if (key.sequence === "w") {
+  if (!st.pending && key.sequence === "w") {
     const m = /\S+\s*/y; m.lastIndex = st.cursor + 1;
     const r = m.exec(st.line);
     st.cursor = r ? Math.min(st.line.length - 1, st.cursor + 1 + r[0].length - (r[0].endsWith(" ") ? 0 : 0)) : Math.max(0, st.line.length - 1);

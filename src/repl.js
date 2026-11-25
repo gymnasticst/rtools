@@ -288,8 +288,8 @@ export async function startREPL(ctx) {
       usageTracker.turns++;
       recordTurn({
         model,
-        input: usageTracker.total?.input ?? 0,
-        output: usageTracker.total?.output ?? 0,
+        input: usageTracker.input,
+        output: usageTracker.output,
         seconds: 0,
         pricing: ctx.cfg.model_pricing,
       });
