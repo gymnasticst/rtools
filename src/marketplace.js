@@ -6,7 +6,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, cpSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseTOML } from "./toml.js";
 
@@ -57,12 +57,13 @@ export function removeMarketplace(name) {
 function cloneRepo({ repo, ref }, dest, sparsePaths) {
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(path.dirname(dest), { recursive: true });
+  // argv array, never a shell string: repo/ref come from marketplace entries.
   if (sparsePaths?.length) {
-    execSync(`git clone --depth 1 --filter=blob:none --no-checkout --branch ${ref} ${repo} ${dest}`, { stdio: "pipe" });
-    execSync(`git -C ${dest} sparse-checkout set ${sparsePaths.join(" ")}`, { stdio: "pipe" });
-    execSync(`git -C ${dest} checkout`, { stdio: "pipe" });
+    execFileSync("git", ["clone", "--depth", "1", "--filter=blob:none", "--no-checkout", "--branch", ref, repo, dest], { stdio: "pipe" });
+    execFileSync("git", ["-C", dest, "sparse-checkout", "set", ...sparsePaths], { stdio: "pipe" });
+    execFileSync("git", ["-C", dest, "checkout"], { stdio: "pipe" });
   } else {
-    execSync(`git clone --depth 1 --branch ${ref} ${repo} ${dest}`, { stdio: "pipe" });
+    execFileSync("git", ["clone", "--depth", "1", "--branch", ref, repo, dest], { stdio: "pipe" });
   }
 }
 
@@ -289,7 +290,7 @@ export async function skillInstall(source) {
     return `${installed} skill(s) from plugin "${source}" installed into ${SKILLS_DIR()}${note}`;
   }
   mkdirSync(SKILLS_DIR(), { recursive: true });
-  execSync(`git clone --depth 1 ${repo} ${target}`, { stdio: "inherit" });
+  execFileSync("git", ["clone", "--depth", "1", repo, target], { stdio: "inherit" });
   return `skill "${source}" installed into ${target}`;
 }
 

@@ -174,6 +174,15 @@ if (failures === 0) {
   if (!failures) console.log("UPDATE : selfUpdate verifies release checksum before install");
 }
 
+// Case 4b: the MCP proxy path must go through fileURLToPath — URL.pathname
+// yields "/C:/..." on Windows (regression: pluginInstall spawned node with it).
+{
+  const mp = (await import("node:fs")).readFileSync(new URL("../src/marketplace.js", import.meta.url), "utf8");
+  if (/new URL\([^)]*\)\.pathname/.test(mp)) { console.error("FAIL: proxy path resolved via URL.pathname (breaks on Windows)"); failures++; }
+  if (!mp.includes("fileURLToPath(new URL(\"../bin/rtools-mcp-proxy.js\", import.meta.url))")) { console.error("FAIL: proxy path not converted with fileURLToPath"); failures++; }
+  if (!failures) console.log("PATH   : proxy path uses fileURLToPath");
+}
+
 // Case 5: pluginInstall must not delete an existing user skill of the same name
 // (regression: it rmSync'd ~/.rtools/skills/<name> unconditionally).
 {
@@ -271,6 +280,19 @@ if (failures === 0) {
     rmSync(fakeHomeSkills, { recursive: true, force: true });
   }
   if (!failures) console.log("SKILL  : skillInstall preserves existing user skills without opt-in");
+}
+
+// Case 7: repo/ref with shell metacharacters must be passed to git as argv
+// elements, never interpolated into a shell string (regression: cloneRepo and
+// skillInstall used execSync with template strings — arbitrary command exec).
+// Static assertion: addMarketplace only records the entry, the clone happens
+// inside cloneRepo/skillInstall, so we check the source has no shell-string git.
+{
+  const mp = (await import("node:fs")).readFileSync(new URL("../src/marketplace.js", import.meta.url), "utf8");
+  if (/execSync\(`[^`]*git /.test(mp)) { console.error("FAIL: git command built as a shell template string (shell injection)"); failures++; }
+  if (/execSync\(/.test(mp)) { console.error("FAIL: execSync (shell) still used in marketplace.js — use execFileSync with argv"); failures++; }
+  if (!/execFileSync\("git", \[/.test(mp)) { console.error("FAIL: git not invoked via execFileSync argv array"); failures++; }
+  if (!failures) console.log("SHELL  : repo/ref are passed to git as argv, no shell injection");
 }
 
 if (failures) { console.error(`${failures} test(s) failed`); process.exit(1); }
