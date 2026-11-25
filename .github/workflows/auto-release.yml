@@ -73,12 +73,33 @@ jobs:
           mv "release/rtools-${NEXT#v}.tgz" "release/rtools-${NEXT}.tgz"
           sha256sum release/*.tgz > release/SHASUMS256.txt
 
+      - name: Build release notes
+        env:
+          NEXT: ${{ steps.ver.outputs.next }}
+        run: |
+          # Человекочитаемые заметки: темы коммитов с прошлого тега,
+          # без префиксов conventional commits, хешей и "Full Changelog".
+          LAST="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+          {
+            echo "## Что нового"
+            git log "${LAST}..HEAD" --no-merges --pretty=%s |
+              grep -v '\[skip ci\]' | grep -v ' release$' |
+              sed -E 's/^(feat|fix|docs|refactor|perf|chore|test|style|build|ci)(\([^)]*\))?[:!] +//' |
+              sed -E 's/\.$//' |
+              awk '!seen[$0]++' |
+              sed 's/^/- /'
+            echo ""
+            echo "Установка: \`curl -fsSL https://raw.githubusercontent.com/gymnasticst/rtools/main/install.sh | bash\`"
+          } > release-notes.md
+          cat release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.next }}
           name: ${{ steps.ver.outputs.next }}
-          generate_release_notes: true
+          body_path: release-notes.md
+          generate_release_notes: false
           files: |
             release/*.tgz
             release/SHASUMS256.txt
