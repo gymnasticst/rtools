@@ -7,6 +7,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync
 import path from "node:path";
 import os from "node:os";
 import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { parseTOML } from "./toml.js";
 
 const DEFAULT_MARKETPLACE = { name: "openai/plugins", repo: "https://github.com/openai/plugins", ref: "main", catalog: ".agents/plugins/marketplace.json" };
@@ -143,7 +144,7 @@ export async function pluginInstall(name) {
     const { mcpServers } = readJson(mcpFile);
     for (const [serverName, spec] of Object.entries(mcpServers || {})) {
       if (spec.type === "http" && spec.url) {
-        const proxy = new URL("../bin/rtools-mcp-proxy.js", import.meta.url).pathname;
+        const proxy = fileURLToPath(new URL("../bin/rtools-mcp-proxy.js", import.meta.url));
         installed[`${safeName}_${serverName}`] = { command: "node", args: [proxy, "http", spec.url] };
         note += `\nMCP server "${serverName}" (http: ${spec.url}) bridged to stdio`;
       } else if (spec.command) {
@@ -155,10 +156,17 @@ export async function pluginInstall(name) {
   writeInstalled(installed);
   const skillsSrc = path.join(dest, "skills");
   if (existsSync(skillsSrc)) {
+    const overwrite = ["1", "true", "yes"].includes(String(process.env.RTOOLS_OVERWRITE_SKILLS || "").toLowerCase());
     for (const skill of readdirSync(skillsSrc, { withFileTypes: true })) {
       if (skill.isDirectory()) {
         const target = path.join(SKILLS_DIR(), skill.name);
-        rmSync(target, { recursive: true, force: true });
+        if (existsSync(target)) {
+          if (!overwrite) {
+            note += `\nskill "${skill.name}" already installed, skipped (set RTOOLS_OVERWRITE_SKILLS=1 to overwrite)`;
+            continue;
+          }
+          rmSync(target, { recursive: true, force: true });
+        }
         cpSync(path.join(skillsSrc, skill.name), target, { recursive: true });
         note += `\nskill "${skill.name}" installed`;
       }
@@ -262,15 +270,23 @@ export async function skillInstall(source) {
     const skillsSrc = path.join(src, "skills");
     if (!existsSync(skillsSrc)) throw new Error(`plugin "${source}" has no skills/ directory`);
     mkdirSync(SKILLS_DIR(), { recursive: true });
+    const overwrite = ["1", "true", "yes"].includes(String(process.env.RTOOLS_OVERWRITE_SKILLS || "").toLowerCase());
     let installed = 0;
+    let note = "";
     for (const entry of readdirSync(skillsSrc, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const dest = path.join(SKILLS_DIR(), entry.name);
-      rmSync(dest, { recursive: true, force: true });
+      if (existsSync(dest)) {
+        if (!overwrite) {
+          note += `\nskill "${entry.name}" already installed, skipped (set RTOOLS_OVERWRITE_SKILLS=1 to overwrite)`;
+          continue;
+        }
+        rmSync(dest, { recursive: true, force: true });
+      }
       cpSync(path.join(skillsSrc, entry.name), dest, { recursive: true });
       installed++;
     }
-    return `${installed} skill(s) from plugin "${source}" installed into ${SKILLS_DIR()}`;
+    return `${installed} skill(s) from plugin "${source}" installed into ${SKILLS_DIR()}${note}`;
   }
   mkdirSync(SKILLS_DIR(), { recursive: true });
   execSync(`git clone --depth 1 ${repo} ${target}`, { stdio: "inherit" });

@@ -65,8 +65,7 @@ async function dynamicRegister(metadata, serverUrl) {
   return res.json();
 }
 
-function authorizeAndWaitForCode({ metadata, client, serverUrl }) {
-  const verifier = b64url(randomBytes(32));
+function authorizeAndWaitForCode({ metadata, client, serverUrl, verifier }) {
   const challenge = b64url(createHash("sha256").update(verifier).digest());
   const state = b64url(randomBytes(12));
   const redirectUri = `http://127.0.0.1:${CALLBACK_PORT}/callback`;
@@ -143,7 +142,7 @@ export async function getMcpAccessToken(serverName, serverUrl) {
   const metadata = await discoverMetadata(serverUrl);
   const client = await dynamicRegister(metadata, serverUrl);
   const verifier = b64url(randomBytes(32));
-  const code = await authorizeAndWaitForCode({ metadata, client, serverUrl });
+  const code = await authorizeAndWaitForCode({ metadata, client, serverUrl, verifier });
   const tokens = await exchangeCode({ metadata, client, code, verifier, serverUrl });
   cache[serverName] = {
     access_token: tokens.access_token,

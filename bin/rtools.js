@@ -2,7 +2,7 @@
 import path from "node:path";
 import { runAgentLoop, systemPrompt, buildContext, needsApproval } from "../src/agent.js";
 import { startREPL } from "../src/repl.js";
-import { execSync } from "node:child_process";
+import { selfUpdate } from "../src/update.js";
 import { marketplaceList, marketplaceInfo, pluginInstall, pluginRemove, pluginInstalledNames, listMarketplaces, addMarketplace, removeMarketplace, listSkills, skillInstall, skillRemove } from "../src/marketplace.js";
 import { DEFAULT_SKILLS_DIRS } from "../src/config.js";
 
@@ -51,13 +51,6 @@ MCP plugin example:
   args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]`;
 
 import { readFileSync as readFileSyncRaw } from "node:fs";
-
-function selfUpdate() {
-  const repo = process.env.RTOOLS_REPO || "gymnasticst/rtools";
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || repo.split("/").some((seg) => seg.startsWith("."))) throw new Error(`invalid RTOOLS_REPO (expected owner/repo): ${repo}`);
-  console.log(`Updating RTools from ${repo}...`);
-  execSync("curl -fsSL https://raw.githubusercontent.com/" + repo + "/main/install.sh | sh", { stdio: "inherit" });
-}
 
 function readImageFile(file) {
   const types = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
