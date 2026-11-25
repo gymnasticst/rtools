@@ -3,10 +3,10 @@
 //   1. DuckDuckGo Instant Answer API (api.duckduckgo.com)
 //   2. Wikipedia full-text search API
 // Results include a URL and a snippet.
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-const run = promisify(exec);
+const run = promisify(execFile);
 
 function clean(html) {
   return html.replace(/<[^>]+>/g, "").replace(/&quot;/g, '"').replace(/&amp;/g, "&").trim();
@@ -24,11 +24,12 @@ export function webSearchTool({ maxResults = 5 }) {
     },
     handler: async ({ query }) => {
       const results = [];
+      const curl = (url) =>
+        run("curl", ["-s", "-m", "15", "-A", "rtools-cli", url], { timeout: 20000, maxBuffer: 5 * 1024 * 1024 });
       // 1) DuckDuckGo Instant Answer API
       try {
-        const { stdout } = await run(
-          `curl -s -m 15 -A "rtools-cli" "https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&no_redirect=1"`,
-          { timeout: 20000, maxBuffer: 5 * 1024 * 1024 }
+        const { stdout } = await curl(
+          `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&no_redirect=1`
         );
         const ddg = JSON.parse(stdout);
         if (ddg.AbstractURL && ddg.AbstractText) {
@@ -46,9 +47,8 @@ export function webSearchTool({ maxResults = 5 }) {
       // 2) Wikipedia full-text search
       if (results.length < maxResults) {
         try {
-          const { stdout } = await run(
-            `curl -s -m 15 "https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=${maxResults}&format=json&srsearch=${encodeURIComponent(query)}"`,
-            { timeout: 20000, maxBuffer: 5 * 1024 * 1024 }
+          const { stdout } = await curl(
+            `https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=${maxResults}&format=json&srsearch=${encodeURIComponent(query)}`
           );
           for (const r of JSON.parse(stdout).query?.search || []) {
             if (results.length >= maxResults) break;

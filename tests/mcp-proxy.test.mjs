@@ -3,7 +3,7 @@
 // Run: npm test
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -474,6 +474,67 @@ if (failures === 0) {
   if (!failures) console.log("OAUTH  : listen errors reject cleanly; pending code promise times out");
 }
 
+
+// Case 12: apply_patch containment — ../ and sibling-prefix paths must be refused
+{
+  const cwd = mkdtempSync(path.join(tmpdir(), "rtools-apply-"));
+  const { applyPatchTool } = await import("../src/apply-patch.js");
+  const ap = applyPatchTool({ cwd });
+  try {
+    const patch =
+      "*** Begin Patch\n" +
+      "*** Add File: ../escaped.txt\n" +
+      "+pwned\n" +
+      "*** End Patch\n";
+    let refused = false;
+    try { await ap.handler({ patch }); } catch (e) { refused = /escapes working directory/.test(e.message); }
+    if (!refused) { console.error("FAIL: ../ path not refused"); failures++; }
+    const outside = path.join(path.dirname(cwd), "escaped.txt");
+    if (existsSync(outside)) { console.error("FAIL: file written outside cwd"); failures++; }
+    const sibling = path.join(path.dirname(cwd), path.basename(cwd) + "-evil", "x.txt");
+    const patch2 =
+      "*** Begin Patch\n" +
+      `*** Add File: ${path.relative(cwd, sibling)}\n` +
+      "+pwned\n" +
+      "*** End Patch\n";
+    let refused2 = false;
+    try { await ap.handler({ patch: patch2 }); } catch (e) { refused2 = /escapes working directory/.test(e.message); }
+    if (!refused2) { console.error("FAIL: sibling-prefix path not refused"); failures++; }
+    // a legit in-workspace add must still work
+    const patch3 =
+      "*** Begin Patch\n" +
+      "*** Add File: ok.txt\n" +
+      "+fine\n" +
+      "*** End Patch\n";
+    const out3 = await ap.handler({ patch: patch3 });
+    if (/Error/i.test(out3) || !existsSync(path.join(cwd, "ok.txt"))) { console.error(`FAIL: legit add broken (out=${out3})`); failures++; }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+  if (!failures) console.log("PATCH  : ../ and sibling-prefix paths refused; legit add works");
+}
+
+// Case 13: fetch_url must refuse private/loopback targets (SSRF guard)
+{
+  const { builtinTools } = await import("../src/tools.js");
+  const f = builtinTools({ cwd: tmpdir(), skills: [] }).find((t) => t.name === "fetch");
+  if (!f) { console.error("FAIL: fetch tool not found"); failures++; }
+  else {
+    for (const bad of ["http://127.0.0.1:54321/x", "http://169.254.169.254/latest/meta-data", "http://10.0.0.1/x", "http://192.168.1.1/x", "http://localhost:3000/x", "http://172.16.0.1/x"]) {
+      const out = await f.handler({ url: bad });
+      if (!/blocked/.test(out)) { console.error(`FAIL: ${bad} not blocked (out=${out})`); failures++; }
+    }
+  }
+  if (!failures) console.log("FETCH  : loopback/private/metadata addresses blocked");
+}
+
+// Case 14: web_search must not build a shell command string
+{
+  const ws = (await import("node:fs")).readFileSync(new URL("../src/web-search.js", import.meta.url), "utf8");
+  if (/\bexec\(|\bexecSync\(/.test(ws)) { console.error("FAIL: web-search still shells out via exec/execSync template"); failures++; }
+  if (!/execFile/.test(ws)) { console.error("FAIL: web-search does not use execFile argv"); failures++; }
+  if (!failures) console.log("SEARCH : web_search uses execFile argv, no shell templates");
+}
 
 console.log("ALL_PROXY_TESTS_PASSED");
 process.exit(failures ? 1 : 0); // undici keep-alive sockets to the fake IdP would otherwise hold the event loop open

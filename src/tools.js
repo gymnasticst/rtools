@@ -21,6 +21,25 @@ function truncate(s) {
   return s.length > TOOL_OUTPUT_LIMIT ? s.slice(0, TOOL_OUTPUT_LIMIT) + "\n…(truncated)" : s;
 }
 
+// read a response body up to limit bytes, then stop (avoids unbounded memory)
+async function capBody(res, limit) {
+  const reader = res.body?.getReader();
+  if (!reader) return "";
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    total += value.length;
+    if (total >= limit) {
+      await reader.cancel().catch(() => {});
+      break;
+    }
+  }
+  return Buffer.concat(chunks).subarray(0, limit).toString("utf8");
+}
+
 export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) {
   return [
     {
@@ -286,8 +305,31 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
       },
       handler: async ({ url: target, max_chars: max = 8000 }) => {
         if (!/^https?:\/\//.test(target)) return "Error: url must start with http:// or https://";
+        let host;
+        try {
+          host = new URL(target).hostname;
+        } catch {
+          return "Error: invalid url";
+        }
+        // SSRF guard: no loopback, private, link-local or cloud-metadata hosts
+        const hostLc = host.toLowerCase();
+        const isPrivate =
+          hostLc === "localhost" ||
+          hostLc === "metadata.google.internal" ||
+          hostLc.endsWith(".local") ||
+          hostLc.endsWith(".internal") ||
+          /^\[?\]?::1$/.test(hostLc) ||
+          /^127\./.test(hostLc) ||
+          /^10\./.test(hostLc) ||
+          /^192\.168\./.test(hostLc) ||
+          /^169\.254\./.test(hostLc) ||
+          /^172\.(1[6-9]|2\d|3[01])\./.test(hostLc) ||
+          /^0\./.test(hostLc);
+        if (isPrivate) return "Error: fetching private/loopback addresses is blocked";
         const res = await fetch(target, { signal: AbortSignal.timeout(20000), redirect: "follow" });
-        const raw = await res.text();
+        // cap the download: read at most a few MB so a huge body can't blow memory
+        const capped = await capBody(res, 4 * 1024 * 1024);
+        const raw = capped;
         const type = res.headers.get("content-type") || "";
         let body = raw;
         if (type.includes("text/html")) {

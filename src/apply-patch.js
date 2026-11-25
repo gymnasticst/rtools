@@ -97,7 +97,10 @@ export function applyPatchTool({ cwd }) {
       const results = [];
       for (const hunk of hunks) {
         const abs = path.resolve(cwd, hunk.path);
-        if (!abs.startsWith(path.resolve(cwd))) throw new Error(`path escapes working directory: ${hunk.path}`);
+        // containment: relative path must stay inside cwd (catches ../ and
+        // sibling dirs that share a prefix, e.g. cwd=/repo vs /repo-evil)
+        const rel = path.relative(path.resolve(cwd), abs);
+        if (rel.startsWith("..") || path.isAbsolute(rel)) throw new Error(`path escapes working directory: ${hunk.path}`);
         if (hunk.type === "add") {
           await mkdir(path.dirname(abs), { recursive: true });
           await writeFile(abs, hunk.lines.map((l) => (l.startsWith("+") ? l.slice(1) : l)).join("\n"), "utf8");

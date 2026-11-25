@@ -84,7 +84,7 @@ const VALIDATORS = {
   trust_policy: (v) => ["off", "on"].includes(v),
 };
 
-export function loadConfig({ configPath, model, provider, approval, sandbox, profile, effort, verbosity } = {}) {
+export function loadConfig({ configPath, cwd, model, provider, approval, sandbox, profile, effort, verbosity } = {}) {
   const cfg = defaults();
   const mergeFile = (file) => {
     if (existsSync(file)) deepMerge(cfg, parseTOML(readFileSync(file, "utf8")));
@@ -97,7 +97,9 @@ export function loadConfig({ configPath, model, provider, approval, sandbox, pro
     // mark itself trusted, so its config loads solely for trusted projects
     const [userFile, projectFile] = CONFIG_FILES();
     mergeFile(userFile);
-    if (projectTrusted(cfg, process.cwd())) mergeFile(projectFile);
+    // the working dir the agent will operate in (-w/--workdir), not where the
+    // CLI process happens to run: trust must be checked for the same dir
+    if (projectTrusted(cfg, cwd || process.cwd())) mergeFile(projectFile);
   }
   // profile: [profile.<name>] overrides top-level keys
   if (cfg.profile && profile) {

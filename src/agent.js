@@ -61,7 +61,7 @@ export function needsApproval(tool, policy, planMode = false) {
 }
 
 export async function buildContext(opts) {
-  const cfg = loadConfig(opts);
+  const cfg = loadConfig({ ...opts, cwd: opts.cwd });
   // merge marketplace-installed plugins (~/.rtools/plugins.toml)
   try {
     const { readInstalled } = await import("./marketplace.js");

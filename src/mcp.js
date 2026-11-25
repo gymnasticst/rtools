@@ -105,6 +105,9 @@ export class McpConnection {
   }
 
   send(obj) {
+    // a server that just died makes stdin emit EPIPE; swallow it — the exit
+    // listener already rejects every pending request with a clear error
+    this.child.stdin.on("error", () => {});
     this.child.stdin.write(JSON.stringify(obj) + "\n");
   }
 
