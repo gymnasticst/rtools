@@ -8,7 +8,7 @@ REPO="${RTOOLS_REPO:-gymnasticst/rtools}"
 REPO_RAW="https://raw.githubusercontent.com/${REPO}/main"
 # Default version is rewritten on every push by .github/workflows/auto-release.yml.
 # "latest" falls back to resolving the newest release from the GitHub API below.
-DEFAULT_VERSION="latest"
+DEFAULT_VERSION="v0.1.2"
 PREFIX="${RTOOLS_PREFIX:-$HOME/.local/bin}"
 VERSION_FLAG=""
 
