@@ -29,7 +29,7 @@ export function teamTool({ ctx, depth = 0 }) {
       const subTools = ctx.tools.filter((t) => t.name !== "delegate" && t.name !== "team");
       // Sub-agents cannot ask the user for approval: when the session is not
       // permissive, they get read-only tools only instead of a silent bypass.
-      const permissive = (ctx.cfg.approval ?? "never") === "never";
+      const permissive = (ctx.cfg.approval_policy ?? "untrusted") === "never";
       const allowed = permissive ? subTools : subTools.filter((t) => READ_KINDS.has(t.kind));
       const reports = await Promise.all(
         list.map(async (role) => {

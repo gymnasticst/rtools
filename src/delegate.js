@@ -1,6 +1,6 @@
 // delegate tool: run an independent sub-agent with a fresh context and a
 // restricted toolset (no nested delegation). Codex-style delegation.
-import { runAgentLoop, systemPrompt } from "./agent.js";
+import { runAgentLoop, systemPrompt, READ_KINDS } from "./agent.js";
 
 export function delegateTool({ ctx, depth = 0 }) {
   return {
@@ -24,9 +24,11 @@ export function delegateTool({ ctx, depth = 0 }) {
     },
     handler: async ({ task, tools: allowed }) => {
       if (depth >= 2) return "Error: delegation depth limit (2) reached.";
-      const subTools = ctx.tools.filter(
-        (t) => t.name !== "delegate" && (!allowed?.length || allowed.includes(t.name))
-      );
+      const pool = ctx.tools.filter((t) => t.name !== "delegate" && (!allowed?.length || allowed.includes(t.name)));
+      // The sub-agent cannot ask the user for approval: when the session is not
+      // permissive, it gets read-only tools only instead of a silent bypass.
+      const permissive = (ctx.cfg.approval_policy ?? "untrusted") === "never";
+      const subTools = permissive ? pool : pool.filter((t) => READ_KINDS.has(t.kind));
       const messages = [
         { role: "system", content: systemPrompt(ctx) + "\nYou are a sub-agent. Complete the task and give a final concise answer. You cannot ask the user anything." },
         { role: "user", content: task },
@@ -41,6 +43,7 @@ export function delegateTool({ ctx, depth = 0 }) {
         approval: "never",
         sandbox: ctx.cfg.sandbox_mode,
         maxSteps: 20,
+        _depth: depth + 1,
         onText: (d) => (final += d),
       });
       return final.trim().slice(0, 20000) || "(sub-agent returned no text)";
