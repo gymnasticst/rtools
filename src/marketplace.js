@@ -224,6 +224,7 @@ export function pluginRemove(name) {
   return `plugin "${name}" removed`;
 }
 
+// pluginInstalledNames returns { mcp: [...], plugins: [...] } — real names
 export function pluginInstalledNames() {
   return {
     mcp: Object.keys(readInstalled()),

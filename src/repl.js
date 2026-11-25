@@ -18,6 +18,7 @@ import { addCronTask, listCronTasks, removeCronTask, dueCronTasks } from "./cron
 import { setLanguage, t } from "./i18n.js";
 import { createVimState, vimKey } from "./vim.js";
 import { sessionToMarkdown, summarizeTranscript, summaryToMarkdown, buildWiki } from "./share.js";
+import { fileBrowser, terminalPanel, subagentsPanel, mcpPanel, pluginsPanel } from "./panels.js";
 import { enterWorktree, exitWorktree, listWorktrees, inWorktree } from "./worktree.js";
 import { remoteAlive, remoteExec } from "./remote.js";
 import { changedFilesSince } from "./apply-patch.js";
@@ -388,6 +389,11 @@ export async function startREPL(ctx) {
     ["/find", "search transcript"],
     ["/paste", "paste multi-line input"],
     ["/edit", "compose in $EDITOR"],
+    ["/files", "browse files & directories"],
+    ["/terminal", "run shell commands in a panel"],
+    ["/agents", "live sub-agent activity"],
+    ["/mcp", "MCP server status"],
+    ["/plugin list", "installed plugins"],
     ["/clear", "new conversation"],
     ["/quit", "exit"],
   ];
@@ -1020,6 +1026,49 @@ export async function startREPL(ctx) {
         case "/vim": {
           ctx.cfg.vim_mode = !ctx.cfg.vim_mode;
           console.log(`vim mode ${ctx.cfg.vim_mode ? "on (esc=normal, i=insert)" : "off"}`);
+          continue;
+        }
+        case "/files": {
+          const r = await fileBrowser({ startDir: ctx.cwd });
+          if (r?.action === "preview") {
+            console.log(`\n${r.path}\n${"-".repeat(60)}\n${r.text}`);
+          } else if (r?.action === "insert") {
+            input = `${input ? input + " " : ""}@${r.path}`;
+            console.log(`attached: @${r.path} — press Enter to send`);
+            continue;
+          } else if (r?.action === "error") {
+            console.log(`error: ${r.error}`);
+          }
+          continue;
+        }
+        case "/terminal": {
+          const r = await terminalPanel({ cwd: ctx.cwd });
+          if (r) {
+            console.log(`$ ${r.command}`);
+            console.log(r.output);
+          }
+          continue;
+        }
+        case "/agents": {
+          const ev = await subagentsPanel();
+          if (ev) {
+            console.log(`\n${ev.name} (${ev.state}) — task: ${ev.task}`);
+            console.log(`steps: ${ev.steps} · tools: ${ev.toolsUsed.join(", ") || "none"}`);
+            if (ev.text) console.log(`last output: ${ev.text.slice(-600)}`);
+            if (ev.error) console.log(`error: ${ev.error}`);
+          }
+          continue;
+        }
+        case "/mcp": {
+          await mcpPanel({ cfgMcp: ctx.cfg.mcp_servers || {}, connections: ctx.mcpConnections || [] });
+          continue;
+        }
+        case "/plugin": {
+          if (rest[0] === "list") {
+            await pluginsPanel({ skillsDirs: ctx.cfg.skills_dirs || [] });
+            continue;
+          }
+          console.log("usage: /plugin list — install/remove with: rt plugin install|remove <name>");
           continue;
         }
         case "/jobs": {

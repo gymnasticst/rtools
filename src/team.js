@@ -1,6 +1,7 @@
 // team tool: run 2-4 role-assigned sub-agents in parallel on the same repo
 // (e.g. research / implement / review) and merge their reports.
 import { runAgentLoop, systemPrompt, READ_KINDS } from "./agent.js";
+import { agentStarted, agentStep, agentText, agentFinished } from "./agent-registry.js";
 
 export function teamTool({ ctx, depth = 0 }) {
   return {
@@ -44,18 +45,26 @@ export function teamTool({ ctx, depth = 0 }) {
               { role: "user", content: task },
             ];
             let final = "";
-            await runAgentLoop({
-              provider: ctx.provider,
-              apiKey: ctx.apiKey,
-              model: ctx.cfg.model,
-              messages,
-              tools: allowed,
-              approval: "never",
-              sandbox: ctx.cfg.sandbox_mode,
-              maxSteps: 12,
-              _depth: depth + 1,
-              onText: (d) => (final += d),
-            });
+            const ev = agentStarted({ kind: "team", name: role, task });
+            try {
+              await runAgentLoop({
+                provider: ctx.provider,
+                apiKey: ctx.apiKey,
+                model: ctx.cfg.model,
+                messages,
+                tools: allowed,
+                approval: "never",
+                sandbox: ctx.cfg.sandbox_mode,
+                maxSteps: 12,
+                _depth: depth + 1,
+                onText: (d) => { final += d; agentText(ev, d); },
+                onToolUse: (tool) => agentStep(ev, tool?.name),
+              });
+              agentFinished(ev);
+            } catch (e) {
+              agentFinished(ev, { error: e.message });
+              throw e;
+            }
             return `## ${role}\n${final.trim().slice(0, 8000) || "(no text)"}`;
           } catch (e) {
             return `## ${role}\nError: ${e.message}`;

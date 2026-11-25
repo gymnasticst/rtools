@@ -121,7 +121,7 @@ description: Что делает скилл
 
 ## Slash-команды в сессии
 
-`/help /init /review /plan /model /provider /agent /policy /sandbox /prompts /tools /skills /status /diff /export /compact /resume /settings /effort /verbosity /permissions /usage /stats /smartroute /todos /goal /cron /share /summary /wiki /worktree /remote /language /vim /jobs /undo /checkpoints /trace /copy /find /paste /edit /clear /quit`
+`/help /init /review /plan /model /provider /agent /policy /sandbox /prompts /tools /skills /status /diff /export /compact /resume /settings /effort /verbosity /permissions /usage /stats /smartroute /todos /goal /cron /share /summary /wiki /worktree /remote /language /vim /files /terminal /agents /mcp /plugin list /jobs /undo /checkpoints /trace /copy /find /paste /edit /clear /quit`
 
 `/export [file]` сохраняет сессию в Markdown (чат и вызовы инструментов) — по умолчанию `rtools-session-<id>.md`. При приближении к лимиту контекстного окна (`context_window`, по умолчанию 128k) сессия ужимается автоматически — вручную вызывать `/compact` не нужно.
 
