@@ -86,8 +86,18 @@ const VALIDATORS = {
 
 export function loadConfig({ configPath, model, provider, approval, sandbox, profile, effort, verbosity } = {}) {
   const cfg = defaults();
-  for (const file of configPath ? [configPath] : CONFIG_FILES()) {
+  const mergeFile = (file) => {
     if (existsSync(file)) deepMerge(cfg, parseTOML(readFileSync(file, "utf8")));
+  };
+  if (configPath) {
+    // explicitly passed config is trusted by definition
+    mergeFile(configPath);
+  } else {
+    // trust is decided from the user-level config only; a project cannot
+    // mark itself trusted, so its config loads solely for trusted projects
+    const [userFile, projectFile] = CONFIG_FILES();
+    mergeFile(userFile);
+    if (projectTrusted(cfg, process.cwd())) mergeFile(projectFile);
   }
   // profile: [profile.<name>] overrides top-level keys
   if (cfg.profile && profile) {
