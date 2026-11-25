@@ -108,7 +108,7 @@ function truncateMcp(s) {
   return s.length > 20000 ? s.slice(0, 20000) + "\n…(truncated)" : s;
 }
 
-const READ_KINDS = new Set(["read", "git"]);
+export const READ_KINDS = new Set(["read", "git"]);
 
 function shouldCheckpoint(tool) {
   return tool.kind === "write" || tool.name === "apply_patch" || tool.name === "edit";

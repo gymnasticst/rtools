@@ -60,19 +60,28 @@ export function jobStatus(name) {
 export function jobLogs(name, lines = 40) {
   const j = jobs.get(name);
   if (!j) return null;
-  return j.lines.slice(-lines);
+  const n = Math.floor(Number(lines) || 40);
+  return n <= 0 ? [] : j.lines.slice(-n);
 }
+
+const terminate = (child) => {
+  if (child.exitCode !== null || child.signalCode) return;
+  child.kill("SIGTERM");
+  setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  }, 5000).unref();
+};
 
 export function stopJob(name) {
   const j = jobs.get(name);
   if (!j) return { ok: false, error: `no such job "${name}"` };
   if (j.status !== "running") return { ok: false, error: `job "${name}" is not running (${j.status})` };
-  j.child.kill("SIGKILL");
+  terminate(j.child);
   return { ok: true, job: summary(j) };
 }
 
 export function stopAllJobs() {
-  for (const j of jobs.values()) if (j.status === "running") j.child.kill("SIGKILL");
+  for (const j of jobs.values()) if (j.status === "running") terminate(j.child);
 }
 
 // Tool wrapper: job start|status|logs|stop. kind "shell" → approval applies.
