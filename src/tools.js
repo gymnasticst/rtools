@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { execWithSandbox } from "./sandbox.js";
@@ -402,4 +403,44 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
       },
     },
   ];
+}
+
+// view_image: attach a local image (screenshot, mockup) as a user-visible
+// message so vision models can look at it. The REPL wires the display side.
+export function viewImageTool({ cwd }) {
+  const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp)$/i;
+  return {
+    name: "view_image",
+    kind: "read",
+    description:
+      "Load a local image file (png, jpg, gif, webp) so you can see it. " +
+      "Returns a note; the image itself is attached to the conversation as a user message.",
+    parameters: {
+      type: "object",
+      properties: { path: { type: "string", description: "Image path (relative to the working directory or absolute)" } },
+      required: ["path"],
+    },
+    handler: async ({ path: file }) => {
+      if (!file || typeof file !== "string") return "Error: path is required";
+      if (!IMAGE_EXT.test(file)) return `Error: not an image path: ${file}`;
+      const abs = path.resolve(cwd, file);
+      const rel = path.relative(cwd, abs);
+      if (rel.startsWith("..") || path.isAbsolute(rel)) return `Error: path escapes working directory: ${file}`;
+      if (!existsSync(abs)) return `Error: no such file: ${file}`;
+      const { statSync } = await import("node:fs");
+      const size = statSync(abs).size;
+      if (size > 20 * 1024 * 1024) return `Error: image too large (${size} bytes, max 20 MiB)`;
+      const b64 = readFileSync(abs).toString("base64");
+      const mime = /\.png$/i.test(abs) ? "image/png" : /\.gif$/i.test(abs) ? "image/gif" : /\.webp$/i.test(abs) ? "image/webp" : "image/jpeg";
+      viewImageTool._pending = { path: abs, base64: b64, mime };
+      return `image loaded: ${file} (${size} bytes) — attached to the conversation`;
+    },
+  };
+}
+
+// The REPL/agent loop drains this after the tool call completes.
+export function takePendingImage() {
+  const p = viewImageTool._pending;
+  viewImageTool._pending = null;
+  return p;
 }

@@ -1,14 +1,20 @@
 import { loadConfig, resolveProvider, getApiKey, projectTrusted } from "./config.js";
 import { readFileSync, existsSync } from "node:fs";
+import path from "node:path";
 import { connectMcpServers } from "./mcp.js";
 import { discoverSkills } from "./skills.js";
-import { builtinTools } from "./tools.js";
+import { builtinTools, viewImageTool } from "./tools.js";
 import { stream } from "./providers.js";
 import { applyPatchTool } from "./apply-patch.js";
 import { updatePlanTool } from "./plan.js";
 import { execWithSandbox } from "./sandbox.js";
 import { webSearchTool } from "./web-search.js";
 import { delegateTool } from "./delegate.js";
+import { teamTool } from "./team.js";
+import { jobTool } from "./jobs.js";
+import { runHook } from "./hooks.js";
+import { snapshotFile } from "./checkpoints.js";
+import { addUsage } from "./usage.js";
 
 export function loadAgentsMd(cwd) {
   const file = existsSync(`${cwd}/AGENTS.md`) ? `${cwd}/AGENTS.md` : existsSync(`${cwd}/agents.md`) ? `${cwd}/agents.md` : null;
@@ -80,7 +86,10 @@ export async function buildContext(opts) {
   const planState = {};
   tools.push(updatePlanTool({ state: planState }));
   if (cfg.tools?.web_search) tools.push(webSearchTool({ maxResults: cfg.tools.web_search_max_results }));
+  if (cfg.tools?.view_image !== false) tools.push(viewImageTool({ cwd }));
+  tools.push(jobTool({ cwd }));
   tools.push(delegateTool({ ctx: { cfg, provider, apiKey, cwd, skills, tools, mcpConnections } }));
+  tools.push(teamTool({ ctx: { cfg, provider, apiKey, cwd, skills, tools, mcpConnections } }));
   for (const conn of mcpConnections) {
     for (const t of conn.tools) {
       tools.push({
@@ -99,9 +108,34 @@ function truncateMcp(s) {
   return s.length > 20000 ? s.slice(0, 20000) + "\n…(truncated)" : s;
 }
 
-export async function runAgentLoop({ provider, apiKey, model, messages, tools, approval, sandbox, maxSteps = 40, settings = {}, planMode = false, onText, onToolUse, onToolResult, askApproval }) {
-  for (let step = 0; step < maxSteps; step++) {
-    const { text, toolCalls } = await stream({ provider, apiKey, model, messages, tools, onText, settings });
+const READ_KINDS = new Set(["read", "git"]);
+
+function shouldCheckpoint(tool) {
+  return tool.kind === "write" || tool.name === "apply_patch" || tool.name === "edit";
+}
+
+export async function runAgentLoop({ provider, apiKey, model, messages, tools, approval, sandbox, maxSteps = 40, settings = {}, planMode = false, onText, onToolUse, onToolResult, askApproval, usageTracker, trace, cwd = process.cwd(), signal, _depth = 0 }) {
+  const maxRetries = 2;
+  let step = 0;
+  for (; step < maxSteps; step++) {
+    // stream with retry on transient provider failures (and Ctrl+C: rethrow)
+    let text, toolCalls, usage;
+    let attempt = 0;
+    for (;;) {
+      try {
+        const r = await stream({ provider, apiKey, model, messages, tools, onText, settings, signal });
+        text = r.text;
+        toolCalls = r.toolCalls;
+        usage = r.usage;
+        break;
+      } catch (e) {
+        if (signal?.aborted || e.name === "AbortError") throw new Error("interrupted");
+        if (attempt++ >= maxRetries) throw e;
+        await new Promise((r) => setTimeout(r, 800 * attempt));
+      }
+    }
+    addUsage(usageTracker, usage);
+    trace?.log({ type: "step", step, model, input: usage?.input_tokens, output: usage?.output_tokens });
     messages.push({
       role: "assistant",
       content: text || null,
@@ -109,30 +143,56 @@ export async function runAgentLoop({ provider, apiKey, model, messages, tools, a
         ? { tool_calls: toolCalls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: tc.arguments } })) }
         : {}),
     });
-    if (!toolCalls.length) return;
+    if (!toolCalls.length) return { steps: step + 1 };
 
-    for (const call of toolCalls) {
-      const tool = tools.find((t) => t.name === call.name);
+    const calls = toolCalls.map((call) => ({ call, tool: tools.find((t) => t.name === call.name) }));
+    const runOne = async ({ call, tool }) => {
       let result;
       if (!tool) {
         result = `Error: unknown tool "${call.name}"`;
       } else if (needsApproval(tool, approval, planMode) && !(await askApproval?.(tool, call))) {
         result = "The user denied this tool call.";
       } else {
-        onToolUse?.(tool, call);
-        try {
-          const args = safeParse(call.arguments);
-          if (tool.kind === "shell" && sandbox) args.__sandboxMode = sandbox;
-          result = await tool.handler(args);
-        } catch (e) {
-          result = `Error: ${e.message}`;
+        const pre = runHook(settings.hooks, "pre_tool", tool, safeParse(call.arguments));
+        if (!pre.ok) {
+          result = `Blocked by pre_tool hook: ${pre.output}`;
+        } else {
+          onToolUse?.(tool, call);
+          try {
+            const args = safeParse(call.arguments);
+            if (tool.kind === "shell" && sandbox) args.__sandboxMode = sandbox;
+            if (shouldCheckpoint(tool) && typeof args.path === "string") {
+              try {
+                snapshotFile(path.resolve(cwd, args.path), cwd);
+              } catch {
+                // checkpointing is best-effort
+              }
+            }
+            result = await tool.handler(args);
+          } catch (e) {
+            result = `Error: ${e.message}`;
+          }
+          runHook(settings.hooks, "post_tool", tool, safeParse(call.arguments));
         }
       }
       onToolResult?.(tool, result);
-      messages.push({ role: "tool", tool_call_id: call.id, content: result });
+      return { role: "tool", tool_call_id: call.id, content: result };
+    };
+    // read-only tools run in parallel; effectful ones stay strictly ordered
+    const ordered = calls.filter((c) => !READ_KINDS.has(c.tool?.kind));
+    const parallel = calls.filter((c) => READ_KINDS.has(c.tool?.kind));
+    const results = new Map();
+    if (parallel.length > 1) {
+      const done = await Promise.all(parallel.map((c) => runOne(c)));
+      parallel.forEach((c, i) => results.set(c, done[i]));
+    } else {
+      for (const c of parallel) results.set(c, await runOne(c));
     }
+    for (const c of ordered) results.set(c, await runOne(c));
+    for (const c of calls) messages.push(results.get(c));
   }
-  throw new Error(`Reached the ${maxSteps}-step limit for one request.`);
+  // step limit: report instead of throwing so the session survives
+  return { steps: step, stepLimitReached: true };
 }
 
 function safeParse(s) {

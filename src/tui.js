@@ -1,6 +1,6 @@
 // TUI in the Codex style: rounded banner, live status bar, spinner,
 // streamed assistant text, inline tool notices. Terminal-only (ANSI).
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 
 const C = {
   dim: (s) => `\x1b[2m${s}\x1b[0m`,
@@ -67,11 +67,43 @@ export function banner({ version, model, effort, provider, cwd }) {
   );
 }
 
-export function statusBar({ model, effort, tokensLeft = 100, tokensUsed = 0 }) {
-  return C.gray(`  ${tokensLeft}% context left · ~${tokensUsed} tok · ${model} ${effort} · ? for shortcuts`);
+export function statusBar({ model, effort, tokensLeft = 100, tokensUsed = 0, git = "", jobs = 0 }) {
+  const parts = [`  ${tokensLeft}% context left`, `~${tokensUsed} tok`];
+  if (git) parts.push(git);
+  parts.push(`${model} ${effort}`);
+  if (jobs) parts.push(`${jobs} job${jobs > 1 ? "s" : ""}`);
+  parts.push("? for shortcuts");
+  return C.gray(parts.join(" · "));
 }
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+// "main*" / "(no git)" for the status bar.
+export function gitStatus() {
+  try {
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", { stdio: ["ignore", "pipe", "ignore"], timeout: 1000 }).toString().trim();
+    const dirty = execSync("git status --porcelain", { stdio: ["ignore", "pipe", "ignore"], timeout: 1000 }).toString().trim();
+    return dirty ? `${branch}*` : branch;
+  } catch {
+    return "(no git)";
+  }
+}
+
+// Copy text to the system clipboard: native tools first, OSC52 escape as a
+// fallback (works over ssh in supported terminals). Returns "" or an error.
+export function copyToClipboard(text) {
+  for (const [cmd, args] of [["xclip", ["-selection", "clipboard"]], ["wl-copy", []], ["pbcopy", []]]) {
+    try {
+      const { execFileSync } = { execFileSync };
+      execFileSync(cmd, args, { input: text, stdio: ["pipe", "ignore", "ignore"] });
+      return "";
+    } catch {}
+  }
+  try {
+    process.stdout.write(`\x1b]52;c;${Buffer.from(text, "utf8").toString("base64")}\x07`);
+    return "";
+  } catch (e) {
+    return e.message;
+  }
+}
 
 export class Spinner {
   constructor(label) {
@@ -81,12 +113,18 @@ export class Spinner {
   }
   start() {
     if (process.stdout.isTTY === false) return this; // no spinner without TTY
+    this.startedAt = Date.now();
     this.timer = setInterval(() => {
       const f = C.cyan(SPINNER_FRAMES[this.frame % SPINNER_FRAMES.length]);
-      process.stdout.write(`\r  ${f} ${this.label}${C.gray("…")}   `);
+      const secs = Math.floor((Date.now() - this.startedAt) / 1000);
+      process.stdout.write(`\r  ${f} ${this.label}${C.gray(`… ${secs}s`)}   `);
       this.frame++;
     }, 90);
     return this;
+  }
+  // Update the label while spinning (e.g. last shell output line).
+  setLabel(label) {
+    this.label = String(label).slice(0, 60);
   }
   stop() {
     if (this.timer) {

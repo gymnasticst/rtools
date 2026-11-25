@@ -57,7 +57,7 @@ function safeJson(s) {
 
 // ---------- OpenAI /chat/completions ----------
 
-async function streamChat({ provider, apiKey, model, messages, tools, onText, settings = {} }) {
+async function streamChat({ provider, apiKey, model, messages, tools, onText, settings = {}, signal }) {
   const body = { model, messages: withImages(messages), stream: true };
   for (const key of ["temperature", "top_p", "max_output_tokens"]) {
     if (settings[key] !== undefined && settings[key] !== null) body[key] = settings[key];
@@ -73,11 +73,13 @@ async function streamChat({ provider, apiKey, model, messages, tools, onText, se
     method: "POST",
     headers: extraHeaders(provider, apiKey),
     body: JSON.stringify(body),
+    signal,
   });
   if (!res.ok) throw new Error(`Provider HTTP ${res.status}: ${(await res.text()).slice(0, 500)}`);
 
   const text = [];
   const acc = new Map();
+  const usage = { input_tokens: 0, output_tokens: 0 };
   for await (const data of sseData(res)) {
     if (data === "[DONE]") break;
     let ev;
@@ -87,6 +89,10 @@ async function streamChat({ provider, apiKey, model, messages, tools, onText, se
       continue;
     }
     const delta = ev.choices?.[0]?.delta || {};
+    if (ev.usage) {
+      usage.input_tokens = ev.usage.prompt_tokens ?? 0;
+      usage.output_tokens = ev.usage.completion_tokens ?? 0;
+    }
     if (delta.content) {
       text.push(delta.content);
       onText?.(delta.content);
@@ -100,12 +106,12 @@ async function streamChat({ provider, apiKey, model, messages, tools, onText, se
       acc.set(idx, cur);
     }
   }
-  return { text: text.join(""), toolCalls: [...acc.values()].filter((t) => t.name) };
+  return { text: text.join(""), toolCalls: [...acc.values()].filter((t) => t.name), usage };
 }
 
 // ---------- OpenAI /responses ----------
 
-async function streamResponses({ provider, apiKey, model, messages, tools, onText, settings = {} }) {
+async function streamResponses({ provider, apiKey, model, messages, tools, onText, settings = {}, signal }) {
   const input = [];
   for (const m of messages) {
     if (m.role === "system" || m.role === "user") {
@@ -137,11 +143,13 @@ async function streamResponses({ provider, apiKey, model, messages, tools, onTex
     method: "POST",
     headers: extraHeaders(provider, apiKey),
     body: JSON.stringify(body),
+    signal,
   });
   if (!res.ok) throw new Error(`Provider HTTP ${res.status}: ${(await res.text()).slice(0, 500)}`);
 
   const text = [];
   const toolCalls = [];
+  const usage = { input_tokens: 0, output_tokens: 0 };
   for await (const data of sseData(res)) {
     if (data === "[DONE]") break;
     let ev;
@@ -150,6 +158,10 @@ async function streamResponses({ provider, apiKey, model, messages, tools, onTex
     } catch {
       continue;
     }
+    if (ev.type === "response.completed" && ev.response?.usage) {
+      usage.input_tokens = ev.response.usage.input_tokens ?? 0;
+      usage.output_tokens = ev.response.usage.output_tokens ?? 0;
+    }
     if (ev.type === "response.output_text.delta") {
       text.push(ev.delta);
       onText?.(ev.delta);
@@ -157,12 +169,12 @@ async function streamResponses({ provider, apiKey, model, messages, tools, onTex
       toolCalls.push({ id: ev.item.call_id, name: ev.item.name, arguments: ev.item.arguments || "{}" });
     }
   }
-  return { text: text.join(""), toolCalls };
+  return { text: text.join(""), toolCalls, usage };
 }
 
 // ---------- Anthropic /v1/messages ----------
 
-async function streamAnthropic({ provider, apiKey, model, messages, tools, onText, settings = {} }) {
+async function streamAnthropic({ provider, apiKey, model, messages, tools, onText, settings = {}, signal }) {
   const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
   const msgs = [];
   for (const m of messages) {
@@ -201,11 +213,13 @@ async function streamAnthropic({ provider, apiKey, model, messages, tools, onTex
     method: "POST",
     headers,
     body: JSON.stringify(body),
+    signal,
   });
   if (!res.ok) throw new Error(`Provider HTTP ${res.status}: ${(await res.text()).slice(0, 500)}`);
 
   const text = [];
   const blocks = new Map();
+  const usage = { input_tokens: 0, output_tokens: 0 };
   for await (const data of sseData(res)) {
     let ev;
     try {
@@ -213,7 +227,11 @@ async function streamAnthropic({ provider, apiKey, model, messages, tools, onTex
     } catch {
       continue;
     }
-    if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use") {
+    if (ev.type === "message_start" && ev.message?.usage) {
+      usage.input_tokens = ev.message.usage.input_tokens ?? 0;
+    } else if (ev.type === "message_delta" && ev.usage) {
+      usage.output_tokens = ev.usage.output_tokens ?? usage.output_tokens;
+    } else if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use") {
       blocks.set(ev.index, { id: ev.content_block.id, name: ev.content_block.name, arguments: "" });
     } else if (ev.type === "content_block_delta") {
       if (ev.delta?.type === "text_delta") {
@@ -225,7 +243,7 @@ async function streamAnthropic({ provider, apiKey, model, messages, tools, onTex
       }
     }
   }
-  return { text: text.join(""), toolCalls: [...blocks.values()].filter((b) => b.name).map((b) => ({ id: b.id, name: b.name, arguments: b.arguments || "{}" })) };
+  return { text: text.join(""), toolCalls: [...blocks.values()].filter((b) => b.name).map((b) => ({ id: b.id, name: b.name, arguments: b.arguments || "{}" })), usage };
 }
 
 // List model ids from an OpenAI-compatible /models or Anthropic /v1/models endpoint.

@@ -38,9 +38,27 @@ function bwrapArgs({ mode, cwd }) {
   return args;
 }
 
-export async function execWithSandbox({ command, cwd, mode, env = process.env, timeout = 120000 }) {
+// Live-output plumbing: the REPL registers a sink for the shell tool's last
+// output lines and an AbortController for the currently running command, so
+// Ctrl+C can kill it mid-run.
+let outputSink = null;
+let currentAbort = null;
+
+export function setShellOutputSink(fn) {
+  outputSink = fn;
+}
+
+export function setShellAbort(controller) {
+  currentAbort = controller;
+}
+
+export function abortCurrentShell() {
+  if (currentAbort) currentAbort.abort();
+}
+
+export async function execWithSandbox({ command, cwd, mode, env = process.env, timeout = 120000, onOutput, signal }) {
   if (mode === "danger") {
-    const r = await runRaw(["bash", "-lc", command], { cwd, env, timeout });
+    const r = await runRaw(["bash", "-lc", command], { cwd, env, timeout, onOutput, signal });
     return { ...r, sandboxed: false };
   }
   if (!bwrapAvailable()) {
@@ -53,27 +71,39 @@ export async function execWithSandbox({ command, cwd, mode, env = process.env, t
     };
   }
   const argv = ["bwrap", ...bwrapArgs({ mode, cwd }), "--", "bash", "-lc", command];
-  const r = await runRaw(argv, { cwd, env, timeout });
+  const r = await runRaw(argv, { cwd, env, timeout, onOutput, signal });
   return { ...r, sandboxed: true };
 }
 
-function runRaw(argv, { cwd, env, timeout }) {
+function runRaw(argv, { cwd, env, timeout, onOutput, signal }) {
   return new Promise((resolve) => {
     const child = spawn(argv[0], argv.slice(1), { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "", stderr = "";
-    let timedOut = false;
+    let timedOut = false, interrupted = false;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGKILL");
     }, timeout);
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
+    if (signal) {
+      if (signal.aborted) child.kill("SIGKILL");
+      else signal.addEventListener("abort", () => {
+        interrupted = true;
+        child.kill("SIGKILL");
+      }, { once: true });
+    }
+    const emit = (d) => { try { onOutput?.(String(d)); } catch {} try { outputSink?.(String(d)); } catch {} };
+    child.stdout.on("data", (d) => { stdout += d; emit(d); });
+    child.stderr.on("data", (d) => { stderr += d; emit(d); });
     child.on("error", (e) => {
       clearTimeout(timer);
       resolve({ code: 127, stdout: "", stderr: e.message, spawnError: true });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      if (interrupted) {
+        resolve({ code: 130, stdout, stderr: stderr + (stderr ? "\n" : "") + "command interrupted", interrupted: true });
+        return;
+      }
       if (timedOut) {
         resolve({
           code: 124,

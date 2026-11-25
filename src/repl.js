@@ -1,6 +1,6 @@
 import readline from "node:readline/promises";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, existsSync, readFileSync, appendFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync, appendFileSync, mkdirSync, unlinkSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { execFileSync, spawn as spawnProcess } from "node:child_process";
 import path from "node:path";
@@ -10,8 +10,14 @@ import { SETTING_DEFS, getSetting, setSettingPatch, applyPatch, nextEnum, parseS
 import { pick, typeText, confirm, PALETTE_CANCEL } from "./palette.js";
 import { saveSession, listSessions, loadSession, compactMessages, estimateTokens } from "./session.js";
 import { changedFilesSince } from "./apply-patch.js";
-import { SANDBOX_MODES } from "./sandbox.js";
-import { banner, statusBar, Spinner, toolNotice, turnStart, mdStreamer } from "./tui.js";
+import { SANDBOX_MODES, setShellOutputSink, setShellAbort, abortCurrentShell } from "./sandbox.js";
+import { approvalPreview } from "./diff.js";
+import { undoLast, listCheckpoints } from "./checkpoints.js";
+import { jobStatus, jobLogs, startJob, stopJob } from "./jobs.js";
+import { createTracer } from "./trace.js";
+import { createUsage, addUsage, formatUsage } from "./usage.js";
+import { gitStatus, copyToClipboard, statusBar } from "./tui.js";
+import { banner, Spinner, toolNotice, turnStart, mdStreamer } from "./tui.js";
 
 const HELP = `Commands:
   /help            show this help
@@ -38,6 +44,15 @@ const HELP = `Commands:
   /palette         open the command palette (Ctrl+P; Ctrl+O = settings)
   /effort <level>  reasoning effort: low | medium | high
   /verbosity <v>   answer verbosity: low | medium | high
+  /usage           token usage and estimated cost for this session
+  /jobs [name]     background jobs: /jobs start <n> <cmd>, status, logs, stop
+  /undo            restore the file changed by the last write/edit (checkpoints)
+  /checkpoints     list file checkpoints
+  /trace [on|off]  JSONL step/tool logging under ~/.rtools/logs
+  /copy            copy the last assistant answer to the clipboard
+  /find <text>     search this session's transcript
+  /paste           paste a multi-line block; finish with a line "."
+  /edit            compose a long prompt in $EDITOR
   /clear           start a fresh conversation
   /quit            exit`;
 
@@ -51,6 +66,7 @@ export async function startREPL(ctx) {
     "/init", "/review", "/permissions", "/plan", "/prompts", "/tools", "/skills",
     "/status", "/diff", "/compact", "/resume", "/settings", "/effort", "/verbosity",
     "/model", "/provider", "/agent", "/clear", "/quit", "/palette",
+    "/usage", "/jobs", "/undo", "/checkpoints", "/trace", "/copy", "/find", "/paste", "/edit",
   ];
   const completer = (line) => {
     const hits = SLASH_COMMANDS.filter((c) => c.startsWith(line));
@@ -114,12 +130,14 @@ export async function startREPL(ctx) {
     top_p,
     max_output_tokens,
   } = ctx.cfg;
-  const settings = () => ({ effort, verbosity, temperature, top_p, max_output_tokens });
+  const settings = () => ({ effort, verbosity, temperature, top_p, max_output_tokens, hooks: ctx.cfg.hooks });
+  const usageTracker = createUsage();
+  const trace = createTracer({ enabled: !!ctx.cfg.trace, sessionId });
 
   const contextWindow = Number(ctx.cfg.context_window) || 128000;
   const statusBarLine = () => {
     const used = estimateTokens(messages);
-    return statusBar({ model, effort, tokensLeft: Math.max(0, Math.round((1 - used / contextWindow) * 100)), tokensUsed: used });
+    return statusBar({ model, effort, tokensLeft: Math.max(0, Math.round((1 - used / contextWindow) * 100)), tokensUsed: used, git: gitStatus(), jobs: jobStatus().filter((j) => j.status === "running").length });
   };
   const notifyEvent = (event) => {
     if (!ctx.cfg.notify) return;
@@ -148,20 +166,42 @@ export async function startREPL(ctx) {
 
   let planMode = false;
   let planModeToggled = false;
+  const taskAllow = new Set(); // tools approved with "a" — until the turn ends
   const togglePlan = () => {
     planMode = !planMode;
     planModeToggled = true;
     console.log(planMode ? "plan mode: ON — RTools will read and plan but not change anything (writes/shell ask approval)" : "plan mode: OFF");
   };
 
-  const askApproval = async (tool) => {
-    process.stdout.write(`Allow ${tool.kind} tool "${tool.name}"? [y/n/a] `);
+  const askApproval = async (tool, call) => {
+    // show what the call would actually do (diff for writes, command for shell)
+    let preview = "";
+    let args = {};
+    try {
+      args = JSON.parse(call?.arguments || "{}") || {};
+    } catch {
+      args = {};
+    }
+    try {
+      preview = approvalPreview(tool, args, ctx.cwd);
+    } catch {
+      preview = "";
+    }
+    if (preview) {
+      console.log(C.gray(`\n${preview}\n`));
+    }
+    process.stdout.write(`Allow ${tool.kind} tool "${tool.name}"? [y/n/a/A] (a = this task, A = this session) `);
     const answer = await nextLine("");
-    if (answer.trim().toLowerCase() === "a") {
+    const k = answer.trim().toLowerCase();
+    if (k === "a") {
+      taskAllow.add(tool.name); // allow this tool until the task (turn) ends
+      return true;
+    }
+    if (k === "A" || answer.trim() === "A") {
       approval = "never";
       return true;
     }
-    return answer.trim().toLowerCase() === "y";
+    return k === "y";
   };
 
   const newSession = () => {
@@ -184,10 +224,18 @@ export async function startREPL(ctx) {
     saveSession({ id: sessionId, model, provider: ctx.provider.id, messages, cwd: ctx.cwd }).catch(() => {});
 
   const runTurn = async (input) => {
+    taskAllow.clear(); // "a" approvals last one task/turn
     const spinner = new Spinner("working").start();
     const sawText = { any: false };
+    const abort = new AbortController();
+    currentAbort = abort;
+    setShellAbort(abort);
+    setShellOutputSink((d) => {
+      const line = String(d).split("\n").filter(Boolean).pop();
+      if (line) spinner.setLabel(line.slice(0, 60));
+    });
     try {
-      await runAgentLoop({
+      const r = await runAgentLoop({
         provider: ctx.provider,
         apiKey: ctx.apiKey,
         model,
@@ -195,6 +243,10 @@ export async function startREPL(ctx) {
         tools: ctx.tools,
         approval,
         sandbox,
+        signal: abort.signal,
+        usageTracker,
+        trace,
+        cwd: ctx.cwd,
         maxSteps: ctx.cfg.max_agent_steps || 40,
         settings: settings(),
         planMode,
@@ -211,14 +263,20 @@ export async function startREPL(ctx) {
           toolNotice(tool.name, String(result).split("\n")[0]);
         },
         askApproval: async (tool, call) => {
+          if (taskAllow.has(tool.name)) return true;
           spinner.stop();
-          const ok = await askApproval(tool);
+          const ok = await askApproval(tool, call);
           if (!sawText.any) spinner.start();
           return ok;
         },
       });
+      if (r?.stepLimitReached) {
+        console.log(`\nreached the ${ctx.cfg.max_agent_steps || 40}-step limit — say "continue" to keep going`);
+      }
+      usageTracker.turns++;
     } finally {
       spinner.stop();
+      currentAbort = null;
       if (sawText.md) sawText.md.end();
     }
   };
@@ -302,9 +360,36 @@ export async function startREPL(ctx) {
     ["/resume", "resume a saved session"],
     ["/effort", "reasoning effort"],
     ["/verbosity", "answer verbosity"],
+    ["/usage", "token usage and cost"],
+    ["/jobs", "background jobs"],
+    ["/undo", "restore last changed file"],
+    ["/checkpoints", "list file checkpoints"],
+    ["/trace", "toggle JSONL trace log"],
+    ["/copy", "copy last answer"],
+    ["/find", "search transcript"],
+    ["/paste", "paste multi-line input"],
+    ["/edit", "compose in $EDITOR"],
     ["/clear", "new conversation"],
     ["/quit", "exit"],
   ];
+  // unified launcher: commands + files, filter is shared
+  const launchPalette = async () => {
+    const fileItems = [];
+    try {
+      const out = execFileSync("git", ["ls-files"], { cwd: ctx.cwd, timeout: 1500, stdio: ["ignore", "pipe", "ignore"] }).toString();
+      for (const f of out.split("\n").filter(Boolean).slice(0, 2000)) fileItems.push([`@${f}`, "file", () => ({ text: `@${f}` })]);
+    } catch {
+      // not a git repo or git missing — commands only
+    }
+    const all = [
+      ...PALETTE_COMMANDS.map(([cmd, hint]) => [cmd, hint, () => ({ line: cmd })]),
+      ...fileItems,
+    ];
+    const picked = await pick({ title: "commands & files", items: all.map(([label, hint]) => ({ label, hint })) });
+    if (!picked) return null;
+    const entry = all.find(([label]) => label === picked.label);
+    return entry ? entry[2]() : null;
+  };
   const providerIds = () => [...new Set([...Object.keys(BUILTIN_PROVIDERS), ...Object.keys(ctx.cfg.model_providers || {})])];
   const LIVE_APPLY = {
     model: (v) => { model = v; },
@@ -407,9 +492,40 @@ export async function startREPL(ctx) {
   };
   if (process.stdin.isTTY) {
     process.stdin.on("keypress", (str, key) => {
+      if (key?.ctrl && key.name === "c") {
+        // interrupt the running agent/shell step, not the whole session
+        if (currentAbort && !currentAbort.signal.aborted) {
+          abortCurrentShell();
+          console.log("\n(interrupting current step…)");
+          return;
+        }
+        process.stdout.write("\n(press Ctrl+D or /quit to exit)\n\u203a ");
+        return;
+      }
+      if (key?.ctrl && key.name === "l") {
+        process.stdout.write("\x1b[2J\x1b[H");
+        console.log(statusBarLine());
+        return;
+      }
       if (paletteBusy || !key) return;
       if (key.ctrl && key.name === "p") void openPalette("commands");
       else if (key.ctrl && key.name === "o") void openPalette("settings");
+      else if (key.ctrl && key.name === "g") void (async () => {
+        // compose a long prompt in $EDITOR, feed it as the next input
+        const ed = process.env.EDITOR || process.env.VISUAL || "vi";
+        const tmp = path.join(homedir(), ".rtools", `prompt-${Date.now()}.md`);
+        mkdirSync(path.dirname(tmp), { recursive: true });
+        writeFileSync(tmp, "");
+        try {
+          execFileSync("bash", ["-lc", `${ed} "${tmp}"`], { stdio: "inherit" });
+          const text = readFileSync(tmp, "utf8").trim();
+          if (text) lineQueue.push(text);
+        } catch {
+          // editor failed — ignore
+        } finally {
+          try { unlinkSync(tmp); } catch {}
+        }
+      })();
     });
   }
   // --- end palettes --------------------------------------------------------
@@ -736,6 +852,107 @@ export async function startREPL(ctx) {
           console.log(changed.join("\n") || "(no changes)");
           continue;
         }
+        case "/usage":
+          console.log(formatUsage(usageTracker, ctx.cfg.model_pricing));
+          continue;
+        case "/jobs": {
+          const [sub, name, ...cmdRest] = rest;
+          if (sub === "start" && name && cmdRest.length) {
+            const r = startJob({ name, command: cmdRest.join(" "), cwd: ctx.cwd });
+            console.log(r.ok ? `job "${r.job.name}" started (${r.job.status})` : `error: ${r.error}`);
+          } else if (sub === "logs" && name) {
+            const out = jobLogs(name, Number(cmdRest[0]) || 40);
+            console.log(out === null ? `no such job "${name}"` : out.join("\n") || "(no output yet)");
+          } else if (sub === "stop" && name) {
+            const r = stopJob(name);
+            console.log(r.ok ? `stopped "${name}"` : `error: ${r.error}`);
+          } else if (!sub || sub === "status") {
+            const list = jobStatus();
+            console.log(list.map((j) => `${j.name}: ${j.status}${j.code != null ? ` (code ${j.code})` : ""} — ${j.command}`).join("\n") || "(no jobs)");
+          } else {
+            console.log("usage: /jobs start <name> <cmd> | status [name] | logs <name> [lines] | stop <name>");
+          }
+          continue;
+        }
+        case "/undo": {
+          const r = undoLast({ cwd: ctx.cwd });
+          console.log(r ? `restored ${r.file} (checkpoint ${r.id})` : "nothing to undo");
+          continue;
+        }
+        case "/checkpoints": {
+          const list = listCheckpoints().filter((c) => c.cwd === path.resolve(ctx.cwd));
+          console.log(list.map((c) => `${c.id}  ${c.at}  ${c.abs}`).join("\n") || "(no checkpoints in this project)");
+          continue;
+        }
+        case "/trace": {
+          const arg = (rest[0] || "").toLowerCase();
+          if (arg === "on" || arg === "off") trace.enabled = arg === "on";
+          console.log(`trace ${trace.enabled ? "on" : "off"} — ${trace.file}`);
+          continue;
+        }
+        case "/copy": {
+          const last = [...messages].reverse().find((m) => m.role === "assistant" && m.content);
+          if (!last) {
+            console.log("no assistant answer yet");
+          } else {
+            const err = copyToClipboard(typeof last.content === "string" ? last.content : JSON.stringify(last.content));
+            console.log(err ? `copy failed: ${err}` : "copied to clipboard");
+          }
+          continue;
+        }
+        case "/find": {
+          const q = rest.join(" ").toLowerCase();
+          if (!q) {
+            console.log("usage: /find <text>");
+          } else {
+            const hits = [];
+            messages.forEach((m, i) => {
+              const t = typeof m.content === "string" ? m.content : "";
+              if (t.toLowerCase().includes(q)) hits.push(`[${i}] ${m.role}: ${t.split("\n").find((l) => l.toLowerCase().includes(q)).slice(0, 160)}`);
+            });
+            console.log(hits.slice(-20).join("\n") || "no matches");
+          }
+          continue;
+        }
+        case "/paste": {
+          console.log("paste lines, finish with a single \".\"");
+          const buf = [];
+          for (;;) {
+            const l = await nextLine("");
+            if (l === null || l.trim() === ".") break;
+            buf.push(l);
+          }
+          if (buf.length) {
+            turnStart("paste");
+            messages.push({ role: "user", content: buf.join("\n") });
+            await runTurn(buf.join("\n"));
+            process.stdout.write("\n");
+            console.log(statusBarLine());
+            await persist();
+          }
+          continue;
+        }
+        case "/edit": {
+          const ed = process.env.EDITOR || process.env.VISUAL || "vi";
+          const tmp = path.join(homedir(), ".rtools", `prompt-${Date.now()}.md`);
+          mkdirSync(path.dirname(tmp), { recursive: true });
+          writeFileSync(tmp, "");
+          try {
+            execFileSync("bash", ["-lc", `${ed} "${tmp}"`], { stdio: "inherit" });
+            const text = readFileSync(tmp, "utf8").trim();
+            if (text) {
+              turnStart("editor");
+              messages.push({ role: "user", content: text });
+              await runTurn(text);
+              process.stdout.write("\n");
+              console.log(statusBarLine());
+              await persist();
+            } else console.log("(empty — cancelled)");
+          } finally {
+            try { unlinkSync(tmp); } catch {}
+          }
+          continue;
+        }
         case "/compact": {
           const next = compactMessages(messages);
           if (!next) console.log("conversation is already small");
@@ -810,13 +1027,27 @@ export async function startREPL(ctx) {
       }
     }
 
+    // @path references: inline the file contents into the prompt (max 3 files)
+    let prompt = input;
+    const atRefs = [...input.matchAll(/@([\w./\\-]+)/g)].map((m) => m[1]).slice(0, 3);
+    for (const ref of atRefs) {
+      try {
+        const abs = path.resolve(ctx.cwd, ref);
+        if (existsSync(abs) && statSync(abs).isFile()) {
+          const body = readFileSync(abs, "utf8").slice(0, 20000);
+          prompt = prompt.split(`@${ref}`).join(`\n--- file: ${ref} ---\n${body}\n--- end of ${ref} ---\n`);
+        }
+      } catch {
+        // unreadable ref — leave the token as is
+      }
+    }
     turnStart(input);
     const compacted = autoCompact();
     if (compacted !== null) {
       console.log(`auto-compacted context: ~${compacted} tokens was near the ${contextWindow}-token window`);
       console.log(statusBarLine());
     }
-    messages.push({ role: "user", content: input });
+    messages.push({ role: "user", content: prompt });
     appendHistory(input);
     notifyEvent({ type: "agent-turn-start", input });
     try {

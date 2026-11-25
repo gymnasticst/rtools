@@ -66,7 +66,10 @@ export function defaults() {
     history: { persistence: "save-all", max_bytes: 1048576 }, // save-all | none
     trust_policy: "off", // off: all projects untrusted; per-project trust via [projects]
     projects: {}, // [projects."/path"] trust = "trusted" | "untrusted"
-    tools: { web_search: false, web_search_max_results: 5, view_image: false },
+    tools: { web_search: false, web_search_max_results: 5, view_image: true },
+    hooks: { pre_tool: null, post_tool: null }, // shell commands per tool call
+    trace: false, // JSONL step/tool log under ~/.rtools/logs
+    model_pricing: null, // { input = $/Mtok, output = $/Mtok } for /usage
     mcp_servers: {},
     model_providers: {},
     skills_dirs: DEFAULT_SKILLS_DIRS(),

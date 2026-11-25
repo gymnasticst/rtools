@@ -23,6 +23,10 @@ export const SETTING_DEFS = [
   { id: "history.persistence", label: "history persistence", desc: "save-all | none", kind: "enum", values: ["save-all", "none"], live: false },
   { id: "tools.web_search", label: "web search tool", desc: "enable the web_search tool", kind: "toggle", live: false, note: "new session" },
   { id: "tools.web_search_max_results", label: "web search max results", desc: "results per web_search call", kind: "number", min: 1, max: 20, live: false, note: "new session" },
+  { id: "tools.view_image", label: "view image tool", desc: "let the model look at local images", kind: "toggle", live: false, note: "new session" },
+  { id: "trace", label: "trace log", desc: "JSONL log of steps and tools in ~/.rtools/logs", kind: "toggle", live: false, note: "new session" },
+  { id: "hooks.pre_tool", label: "pre-tool hook", desc: "shell command before every tool call (non-zero blocks it)", kind: "string", live: false, note: "restart to apply" },
+  { id: "hooks.post_tool", label: "post-tool hook", desc: "shell command after every tool call", kind: "string", live: false, note: "restart to apply" },
   { id: "trust_policy", label: "trust policy", desc: "on: every project is trusted", kind: "enum", values: ["off", "on"], live: false },
 ];
 
