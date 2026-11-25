@@ -3,7 +3,7 @@
 RTools — CLI-агент для программирования: интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
 [![CI](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml/badge.svg)](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.1.7-blue)
+![Version](https://img.shields.io/badge/version-0.1.8-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-blue)
 
 ## Содержание
@@ -170,6 +170,8 @@ CI (`.github/workflows/ci.yml`) гоняет `npm test` на каждый push �
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## История версий
+
+- `v0.1.8` — ci: bump checkout/setup-node to v5 and action-gh-release to v3 (Node 24 runtime) (2026-11-25)
 
 - `v0.1.7` — fix(release): human-readable release notes instead of commit list (2026-11-25)
 
