@@ -27,6 +27,7 @@ import { approvalPreview } from "./diff.js";
 import { undoLast, listCheckpoints } from "./checkpoints.js";
 import { jobStatus, jobLogs, startJob, stopJob } from "./jobs.js";
 import { createTracer } from "./trace.js";
+import { builtinTools } from "./tools.js";
 import { createUsage, addUsage, formatUsage } from "./usage.js";
 import { gitStatus, copyToClipboard, statusBar } from "./tui.js";
 import { banner, Spinner, toolNotice, turnStart, mdStreamer } from "./tui.js";
@@ -235,9 +236,24 @@ export async function startREPL(ctx) {
   const persist = () =>
     saveSession({ id: sessionId, model, provider: ctx.provider.id, messages, cwd: ctx.cwd }).catch(() => {});
 
+  // ask_user tool hook: pause the spinner, ask through the TUI, resume
+  let currentSpinner = null;
+  builtinTools._askUser = async (questions) => {
+    currentSpinner?.stop();
+    const out = [];
+    for (const q of questions) {
+      process.stdout.write(C.cyan(`\n? ${q}\n`));
+      const a = (await nextLine("> ")) || "";
+      out.push(`${q}\n  answer: ${a.trim() || "(no answer)"}`);
+    }
+    currentSpinner?.start();
+    return out.join("\n");
+  };
+
   const runTurn = async (input) => {
     taskAllow.clear(); // "a" approvals last one task/turn
     const spinner = new Spinner("working").start();
+    currentSpinner = spinner;
     const sawText = { any: false };
     const abort = new AbortController();
     currentAbort = abort;
@@ -296,6 +312,7 @@ export async function startREPL(ctx) {
       });
     } finally {
       spinner.stop();
+      currentSpinner = null;
       currentAbort = null;
       if (sawText.md) sawText.md.end();
     }

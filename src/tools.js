@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { createInterface } from "node:readline/promises";
 import { execWithSandbox } from "./sandbox.js";
 import { monitorTool } from "./monitor.js";
 import { lspTool } from "./lsp.js";
@@ -47,6 +48,18 @@ async function capBody(res, limit) {
   return Buffer.concat(chunks).subarray(0, limit).toString("utf8");
 }
 
+// headless fallback when no TUI hook is installed (e.g. non-interactive runs)
+async function askUserFallback(questions) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const out = [];
+  for (const q of questions) {
+    const a = await rl.question(`? ${q}\n> `);
+    out.push(`${q}\n  answer: ${a.trim() || "(no answer)"}`);
+  }
+  rl.close();
+  return out.join("\n");
+}
+
 export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) {
   const todoState = createTodoState();
   builtinTools._todos = todoState;
@@ -57,6 +70,107 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
     memoryTool(),
     todoState.tool,
     ...goalTools(),
+    {
+      name: "ask_user",
+      kind: "read",
+      description:
+        "Ask the user clarifying questions and wait for their real answers. MANDATORY before starting any task that changes files, runs commands or builds anything — keep asking until you are 100% sure what the user wants. Skip only for trivial read-only questions you can answer yourself.",
+      parameters: {
+        type: "object",
+        properties: {
+          questions: {
+            type: "array",
+            items: { type: "string" },
+            description: "1-5 concrete questions; each with 2-3 options if a choice is involved",
+          },
+        },
+        required: ["questions"],
+      },
+      handler: async ({ questions }) => {
+        const list = (Array.isArray(questions) ? questions : [String(questions)]).map(String).filter(Boolean).slice(0, 5);
+        if (!list.length) return "Error: no questions given.";
+        const ask = builtinTools._askUser;
+        const text = ask ? await ask(list) : await askUserFallback(list);
+        return `USER ANSWERS:\n${text}`;
+      },
+    },
+    {
+      name: "survey_project",
+      kind: "read",
+      description:
+        "Collect real project facts for writing AGENTS.md: manifests, build/test scripts, languages by file count, git branch/remote, top-level layout, existing AGENTS.md.",
+      parameters: { type: "object", properties: {} },
+      handler: async () => {
+        const facts = [];
+        const pkgPath = path.join(cwd, "package.json");
+        if (existsSync(pkgPath)) {
+          try {
+            const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+            facts.push(`package.json: name=${pkg.name || "?"} version=${pkg.version || "?"}`);
+            if (pkg.scripts) facts.push("scripts:\n" + Object.entries(pkg.scripts).map(([k, v]) => `  ${k}: ${v}`).join("\n"));
+            const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+            const names = Object.keys(deps);
+            if (names.length) facts.push(`dependencies (${names.length}): ${names.slice(0, 20).join(", ")}${names.length > 20 ? " …" : ""}`);
+          } catch {
+            facts.push("package.json: present but not valid JSON");
+          }
+        } else {
+          facts.push("package.json: not found");
+        }
+        for (const m of ["pyproject.toml", "Cargo.toml", "go.mod", "requirements.txt", "Gemfile", "composer.json", "pom.xml", "build.gradle"]) {
+          if (existsSync(path.join(cwd, m))) facts.push(`manifest: ${m}`);
+        }
+        const counts = new Map();
+        let scanned = 0;
+        const skip = new Set(["node_modules", ".git", "dist", "build", "target", ".venv", "venv", "__pycache__", "coverage"]);
+        const walk = (dir, depth) => {
+          if (depth > 4 || scanned > 5000) return;
+          let entries;
+          try {
+            entries = readdirSync(dir, { withFileTypes: true });
+          } catch {
+            return;
+          }
+          for (const e of entries) {
+            if (skip.has(e.name)) continue;
+            const p = path.join(dir, e.name);
+            if (e.isDirectory()) walk(p, depth + 1);
+            else {
+              scanned++;
+              const ext = path.extname(e.name).slice(1).toLowerCase();
+              if (ext) counts.set(ext, (counts.get(ext) || 0) + 1);
+            }
+          }
+        };
+        walk(cwd, 0);
+        facts.push("files by extension (top 10): " + [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([e, n]) => `${e}=${n}`).join(", "));
+        try {
+          const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, encoding: "utf8" }).trim();
+          let remote = "";
+          try {
+            remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd, encoding: "utf8" }).trim();
+          } catch {}
+          facts.push(`git: branch=${branch}${remote ? ` origin=${remote}` : ""}`);
+        } catch {
+          facts.push("git: not a repository");
+        }
+        try {
+          const top = readdirSync(cwd, { withFileTypes: true })
+            .filter((e) => !e.name.startsWith("."))
+            .slice(0, 25)
+            .map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+          facts.push(`top-level: ${top.join(", ")}`);
+        } catch {}
+        const agentsPath = path.join(cwd, "AGENTS.md");
+        if (existsSync(agentsPath)) {
+          const head = readFileSync(agentsPath, "utf8").split("\n").slice(0, 15).join("\n");
+          facts.push(`AGENTS.md exists (first lines):\n${head}`);
+        } else {
+          facts.push("AGENTS.md: missing — after clarifying questions, survey the project and write one yourself");
+        }
+        return truncate(facts.join("\n\n"));
+      },
+    },
     {
       name: "shell",
       kind: "shell",

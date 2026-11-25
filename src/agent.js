@@ -46,6 +46,16 @@ export function systemPrompt({ cfg, cwd, skills = [], mcpConnections = [] }) {
     "Use the provided tools whenever you need to inspect or change anything.",
     "After acting on a tool result, briefly report what you did and the outcome.",
   ];
+  if (cfg.ask_questions !== false) {
+    lines.push(
+      "",
+      "## Mandatory clarifying questions",
+      "Before starting any task that changes files, runs commands or builds anything, you MUST call the `ask_user` tool with concrete clarifying questions and wait for the real answers. Keep asking follow-up `ask_user` rounds until you are 100% sure what the user wants; never invent requirements or guess between alternatives. Skip this only for a trivial read-only question you can answer yourself with the read tools.",
+      "",
+      "## Project AGENTS.md is your responsibility",
+      "After the clarifying answers, check `survey_project`: if the project has no AGENTS.md, you MUST survey the project and write a real AGENTS.md yourself (with write_file) before doing the task. Fill it only with facts you verified: real build/test commands from the actual manifests, real conventions you saw in the code, key files. If AGENTS.md exists but is clearly wrong about build/test commands, fix those sections."
+    );
+  }
   const agentsMd = loadAgentsMd(cwd);
   if (agentsMd) lines.push("", "# Project guidance (AGENTS.md)", agentsMd);
   if (mcpConnections.length) {
