@@ -75,6 +75,10 @@ export function defaults() {
     skills_dirs: DEFAULT_SKILLS_DIRS(),
     instructions_file: null, // replaces built-in base instructions
     profiles: {}, // kept raw; applied via --profile
+    smart_routing: { enabled: false, simple: null, strong: null },
+    vim_mode: false,
+    language: "en", // en | ru
+    keybindings: {}, // [keybindings] action = "ctrl+..."
   };
 }
 
@@ -85,6 +89,8 @@ const VALIDATORS = {
   model_reasoning_summary: (v) => ["auto", "concise", "detailed"].includes(v),
   model_verbosity: (v) => ["low", "medium", "high"].includes(v),
   trust_policy: (v) => ["off", "on"].includes(v),
+  vim_mode: (v) => typeof v === "boolean",
+  language: (v) => ["en", "ru"].includes(v),
 };
 
 export function loadConfig({ configPath, cwd, model, provider, approval, sandbox, profile, effort, verbosity } = {}) {

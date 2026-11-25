@@ -3,6 +3,12 @@ import { readFileSync, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { execWithSandbox } from "./sandbox.js";
+import { monitorTool } from "./monitor.js";
+import { lspTool } from "./lsp.js";
+import { memoryTool } from "./memory-vector.js";
+import { createTodoState } from "./todos.js";
+import { goalTools } from "./goal.js";
+import { remoteExec } from "./remote.js";
 
 // Codex-style [shell_environment_policy]: inherit all|core|none, ignore list, set map
 export function buildShellEnv(policy) {
@@ -42,7 +48,15 @@ async function capBody(res, limit) {
 }
 
 export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) {
+  const todoState = createTodoState();
+  builtinTools._todos = todoState;
+  builtinTools._remoteTarget = null;
   return [
+    monitorTool({ cwd }),
+    lspTool({ cwd }),
+    memoryTool(),
+    todoState.tool,
+    ...goalTools(),
     {
       name: "shell",
       kind: "shell",
@@ -53,6 +67,12 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
         required: ["command"],
       },
       handler: async ({ command, __sandboxMode }) => {
+        // remote session (/remote use <target>): shell runs over ssh instead
+        const remote = builtinTools._remoteTarget;
+        if (remote) {
+          const r = remoteExec(remote, command);
+          return truncate(`exit code: ${r.code}\n${r.stdout ? `stdout:\n${r.stdout}` : ""}${r.stderr ? `stderr:\n${r.stderr}` : ""}`.trim());
+        }
         const env = buildShellEnv(cfg?.shell_environment_policy);
         const { code, stdout, stderr, sandboxed, timedOut, spawnError, refused } = await execWithSandbox({ command, cwd, mode: __sandboxMode || sandboxMode, env });
         let out = `exit code: ${code}`;

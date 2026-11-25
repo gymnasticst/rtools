@@ -9,6 +9,17 @@ import { saveConfig, BUILTIN_PROVIDERS } from "./config.js";
 import { SETTING_DEFS, getSetting, setSettingPatch, applyPatch, nextEnum, parseSettingInput, formatSettingValue } from "./settings-schema.js";
 import { pick, typeText, confirm, PALETTE_CANCEL } from "./palette.js";
 import { saveSession, listSessions, loadSession, compactMessages, estimateTokens } from "./session.js";
+import { autoCompact } from "./auto-compact.js";
+import { routeModel } from "./smart-routing.js";
+import { formatStats, recordTurn } from "./stats.js";
+import { loadKeybindings, matchKeypress, ACTIONS } from "./keybindings.js";
+import { setGoal, loadGoal, clearGoal, updateGoalStatus } from "./goal.js";
+import { addCronTask, listCronTasks, removeCronTask, dueCronTasks } from "./cron.js";
+import { setLanguage, t } from "./i18n.js";
+import { createVimState, vimKey } from "./vim.js";
+import { sessionToMarkdown, summarizeTranscript, summaryToMarkdown, buildWiki } from "./share.js";
+import { enterWorktree, exitWorktree, listWorktrees, inWorktree } from "./worktree.js";
+import { remoteAlive, remoteExec } from "./remote.js";
 import { changedFilesSince } from "./apply-patch.js";
 import { SANDBOX_MODES, setShellOutputSink, setShellAbort, abortCurrentShell } from "./sandbox.js";
 import { approvalPreview } from "./diff.js";
@@ -235,11 +246,12 @@ export async function startREPL(ctx) {
       if (line) spinner.setLabel(line.slice(0, 60));
     });
     try {
+      const routed = routeModel(ctx.cfg, input, { firstTurn: usageTracker.turns === 0 });
       const r = await runAgentLoop({
         provider: ctx.provider,
         apiKey: ctx.apiKey,
         model,
-        messages,
+        messages: autoCompact({ messages, model, warnAt: 0.8, compactAt: 0.92 }).messages,
         tools: ctx.tools,
         approval,
         sandbox,
@@ -248,7 +260,7 @@ export async function startREPL(ctx) {
         trace,
         cwd: ctx.cwd,
         maxSteps: ctx.cfg.max_agent_steps || 40,
-        settings: settings(),
+        settings: { ...settings(), turnModel: routed },
         planMode,
         onText: (d) => {
           if (!sawText.any) {
@@ -274,6 +286,13 @@ export async function startREPL(ctx) {
         console.log(`\nreached the ${ctx.cfg.max_agent_steps || 40}-step limit — say "continue" to keep going`);
       }
       usageTracker.turns++;
+      recordTurn({
+        model,
+        input: usageTracker.total?.input ?? 0,
+        output: usageTracker.total?.output ?? 0,
+        seconds: 0,
+        pricing: ctx.cfg.model_pricing,
+      });
     } finally {
       spinner.stop();
       currentAbort = null;
@@ -530,7 +549,21 @@ export async function startREPL(ctx) {
   }
   // --- end palettes --------------------------------------------------------
 
+  let lastCronTick = 0;
   while (true) {
+    const nowMs = Date.now();
+    if (nowMs - lastCronTick > 60000) {
+      lastCronTick = nowMs;
+      for (const task of dueCronTasks()) {
+        console.log(`\n[cron] ${task.name}: running scheduled prompt`);
+        try {
+          await runTurn(task.prompt);
+          await persist();
+        } catch (e) {
+          console.log(`[cron] ${task.name} failed: ${e.message}`);
+        }
+      }
+    }
     let line;
     try {
       process.stdout.write("\n\u203a ");
@@ -855,6 +888,140 @@ export async function startREPL(ctx) {
         case "/usage":
           console.log(formatUsage(usageTracker, ctx.cfg.model_pricing));
           continue;
+        case "/stats": {
+          const days = Number(rest[0]);
+          console.log(formatStats({ days: Number.isInteger(days) && days >= 0 ? days : 7 }));
+          continue;
+        }
+        case "/smartroute": {
+          if (rest[0] === "on" || rest[0] === "off") {
+            ctx.cfg.smart_routing = { ...ctx.cfg.smart_routing, enabled: rest[0] === "on" };
+            console.log(`smart routing ${rest[0]} (simple: ${ctx.cfg.smart_routing.simple || "(not set — use /smartroute simple <model>)"})`);
+          } else if (rest[0] === "simple" && rest[1]) {
+            ctx.cfg.smart_routing = { ...ctx.cfg.smart_routing, simple: rest.slice(1).join(" ") };
+            console.log(`simple-tier model: ${ctx.cfg.smart_routing.simple}`);
+          } else if (rest[0] === "strong" && rest[1]) {
+            ctx.cfg.smart_routing = { ...ctx.cfg.smart_routing, strong: rest.slice(1).join(" ") };
+            console.log(`strong-tier model: ${ctx.cfg.smart_routing.strong}`);
+          } else {
+            const r = ctx.cfg.smart_routing || {};
+            console.log(`smart routing: ${r.enabled ? "on" : "off"}; simple: ${r.simple || "(unset)"}; strong: ${r.strong || "(unset; current model)"}`);
+            console.log('usage: /smartroute on|off | simple <model> | strong <model>');
+          }
+          continue;
+        }
+        case "/todos": {
+          const todos = tools._todos?.list?.() || [];
+          console.log(todos.length ? todos.map((td) => `[${td.status === "in_progress" ? ">" : td.status === "completed" ? "x" : " "}] ${td.content}`).join("\n") : "(the agent has not written a todo list this session)");
+          continue;
+        }
+        case "/goal": {
+          if (!rest.length) {
+            const g = loadGoal();
+            console.log(g && g.state !== "none" ? `goal (${g.state}): ${g.text}\nstatus: ${g.status}` : "no active goal — set one: /goal <text>");
+          } else if (rest[0] === "clear") {
+            clearGoal();
+            console.log("goal cleared");
+          } else if (rest[0] === "done") {
+            console.log(updateGoalStatus("done", "done") ? "goal marked done" : "no active goal");
+          } else {
+            const g = setGoal(rest.join(" "));
+            console.log(`goal set (${g.state}): ${g.text}`);
+          }
+          continue;
+        }
+        case "/cron": {
+          const [sub, name, ...cronRest] = rest;
+          if (sub === "add" && name && cronRest.length >= 2) {
+            try {
+              const task = addCronTask({ name, cronExpr: cronRest[0], prompt: cronRest.slice(1).join(" ") });
+              console.log(`cron task "${task.name}" added, next run ${task.next_at}`);
+            } catch (e) {
+              console.log(`error: ${e.message}`);
+            }
+          } else if (sub === "rm" && name) {
+            console.log(removeCronTask(name) ? `removed "${name}"` : `no cron task "${name}"`);
+          } else if (!sub || sub === "list") {
+            const tasks = listCronTasks();
+            console.log(tasks.map((task) => `${task.name}: ${task.cron} — next ${task.next_at} — ${task.prompt.slice(0, 60)}`).join("\n") || "(no cron tasks)");
+          } else {
+            console.log("usage: /cron add <name> <cron expr> <prompt> | rm <name> | list");
+          }
+          continue;
+        }
+        case "/share": {
+          const file = path.join(ctx.cwd, rest[0] || `session-${Date.now()}.md`);
+          writeFileSync(file, sessionToMarkdown({ id: session?.id, model, provider: ctx.provider?.name, messages }));
+          console.log(`session written to ${file}`);
+          continue;
+        }
+        case "/summary": {
+          const file = path.join(ctx.cwd, rest[0] || `summary-${Date.now()}.md`);
+          writeFileSync(file, summaryToMarkdown(summarizeTranscript(messages), { id: session?.id }));
+          console.log(`summary written to ${file}`);
+          continue;
+        }
+        case "/wiki": {
+          const outDir = path.join(ctx.cwd, rest[0] || "wiki");
+          mkdirSync(outDir, { recursive: true });
+          for (const p of buildWiki(ctx.cwd).pages) writeFileSync(path.join(outDir, p.file), p.markdown);
+          console.log(`wiki written to ${outDir}/ (${buildWiki(ctx.cwd).pages.length} pages)`);
+          continue;
+        }
+        case "/worktree": {
+          const [sub, name] = rest;
+          try {
+            if (sub === "enter" && name) {
+              const r = enterWorktree(ctx.cwd, name);
+              ctx.cwd = r.dir;
+              console.log(`${r.created ? "created" : "reused"} worktree ${r.dir}`);
+            } else if (sub === "exit" && name) {
+              console.log(exitWorktree(ctx.cwd, name) ? `worktree ${name} removed` : `no worktree ${name}`);
+            } else if (sub === "list" || !sub) {
+              console.log(listWorktrees(ctx.cwd).join("\n") || "(only the main worktree)");
+            } else {
+              console.log("usage: /worktree enter <name> | exit <name> | list");
+            }
+          } catch (e) {
+            console.log(`error: ${e.message}`);
+          }
+          continue;
+        }
+        case "/remote": {
+          const [sub, target] = rest;
+          if (sub === "use" && target) {
+            if (remoteAlive(target)) {
+              ctx.remoteTarget = target;
+              const { builtinTools } = await import("./tools.js");
+              builtinTools._remoteTarget = target;
+              console.log(`remote session active: ${target} (shell tools now run over ssh)`);
+            } else {
+              console.log(`error: cannot reach ${target} (needs key-based ssh access)`);
+            }
+          } else if (sub === "exit") {
+            ctx.remoteTarget = null;
+            const { builtinTools } = await import("./tools.js");
+            builtinTools._remoteTarget = null;
+            console.log("back to local execution");
+          } else {
+            console.log(`remote: ${ctx.remoteTarget || "(local)"} — usage: /remote use <user@host> | exit`);
+          }
+          continue;
+        }
+        case "/language": {
+          try {
+            setLanguage(rest[0] || "en");
+            console.log(`language: ${rest[0] || "en"}`);
+          } catch (e) {
+            console.log(`error: ${e.message}`);
+          }
+          continue;
+        }
+        case "/vim": {
+          ctx.cfg.vim_mode = !ctx.cfg.vim_mode;
+          console.log(`vim mode ${ctx.cfg.vim_mode ? "on (esc=normal, i=insert)" : "off"}`);
+          continue;
+        }
         case "/jobs": {
           const [sub, name, ...cmdRest] = rest;
           if (sub === "start" && name && cmdRest.length) {

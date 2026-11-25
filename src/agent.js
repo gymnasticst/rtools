@@ -26,6 +26,10 @@ export function loadAgentsMd(cwd) {
   }
 }
 
+import { goalPromptSection } from "./goal.js";
+import { memoryPromptSection } from "./memory-vector.js";
+import { routeModel } from "./smart-routing.js";
+
 export function systemPrompt({ cfg, cwd, skills = [], mcpConnections = [] }) {
   if (cfg.instructions_file && existsSync(cfg.instructions_file)) {
     try {
@@ -54,6 +58,8 @@ export function systemPrompt({ cfg, cwd, skills = [], mcpConnections = [] }) {
       ...skills.map((s) => `- ${s.name}${s.description ? `: ${s.description}` : ""}`)
     );
   }
+  lines.push(goalPromptSection());
+  lines.push(memoryPromptSection());
   return lines.join("\n");
 }
 
@@ -83,6 +89,8 @@ export async function buildContext(opts) {
 
   const tools = builtinTools({ cwd, skills, sandboxMode: cfg.sandbox_mode, cfg });
   tools.push(applyPatchTool({ cwd }));
+  const sessionTodo = builtinTools._todos; // todo_write state for /todos
+  if (sessionTodo) tools._todos = sessionTodo;
   const planState = {};
   tools.push(updatePlanTool({ state: planState }));
   if (cfg.tools?.web_search) tools.push(webSearchTool({ maxResults: cfg.tools.web_search_max_results }));
@@ -123,7 +131,7 @@ export async function runAgentLoop({ provider, apiKey, model, messages, tools, a
     let attempt = 0;
     for (;;) {
       try {
-        const r = await stream({ provider, apiKey, model, messages, tools, onText, settings, signal });
+        const r = await stream({ provider, apiKey, model: settings.turnModel || model, messages, tools, onText, settings, signal });
         text = r.text;
         toolCalls = r.toolCalls;
         usage = r.usage;

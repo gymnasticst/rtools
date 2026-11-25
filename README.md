@@ -121,7 +121,7 @@ description: Что делает скилл
 
 ## Slash-команды в сессии
 
-`/help /init /review /plan /model /provider /agent /policy /sandbox /prompts /tools /skills /status /diff /export /compact /resume /settings /effort /verbosity /permissions /usage /jobs /undo /checkpoints /trace /copy /find /paste /edit /clear /quit`
+`/help /init /review /plan /model /provider /agent /policy /sandbox /prompts /tools /skills /status /diff /export /compact /resume /settings /effort /verbosity /permissions /usage /stats /smartroute /todos /goal /cron /share /summary /wiki /worktree /remote /language /vim /jobs /undo /checkpoints /trace /copy /find /paste /edit /clear /quit`
 
 `/export [file]` сохраняет сессию в Markdown (чат и вызовы инструментов) — по умолчанию `rtools-session-<id>.md`. При приближении к лимиту контекстного окна (`context_window`, по умолчанию 128k) сессия ужимается автоматически — вручную вызывать `/compact` не нужно.
 
@@ -129,6 +129,18 @@ description: Что делает скилл
 
 ```
 /usage                    токены (вход/выход) и оценка стоимости за сессию
+/stats [days]            статистика по сессиям (токены, стоимость, время) из ~/.rtools/usage.jsonl
+/smartroute on|off|simple <model>|strong <model>   авто-роутинг: простые реплики — на дешёвую модель ([smart_routing] в config.toml)
+/todos                   список задач, который агент ведёт сам (инструмент todo_write)
+/goal <текст>|clear|done  долгоживущая цель сессии: видна агенту в каждом шаге, прогресс — инструментом goal_status
+/cron add <имя> <cron> <промпт>|rm|list   запланированные задачи (5 полей), запускаются пока открыт REPL
+/share [файл]            выгрузить диалог в markdown
+/summary [файл]          структурное саммари сессии (запросы, инструменты, файлы)
+/wiki [каталог]          вики по репозиторию: страница на раздел исходников
+/worktree enter <имя>|exit <имя>|list     изоляция задачи в git worktree (.rtools-worktrees/)
+/remote use <user@host>|exit   shell-инструмент выполняет команды по ssh на удалённой машине
+/language en|ru          язык сообщений интерфейса
+/vim                     vim-режим ввода (normal/insert, motions w/b/0/$, операторы d/c/y/p)
 /undo                     вернуть файл к состоянию до последней правки агента
 /checkpoints              список чекпоинтов файлов этого проекта
 /jobs start <имя> <cmd>   фоновая задача (тесты, сборка, сервер), переживёт шаг
@@ -188,6 +200,10 @@ description: Что делает скилл
 - **Чекпоинты и `/undo`** — каждая правка файла откатывается.
 - **Хуки** — `[hooks] pre_tool` / `post_tool` в config.toml: shell-команды на каждый вызов инструмента (ненулевой exit у pre_tool блокирует вызов).
 - **Учёт стоимости** — usage из ответов провайдера, `/usage`; цена считается только при заданном `model_pricing`.
+- **Новые инструменты агента** — `todo_write` (задачи хода), `monitor` (фоновая команда с пробуждением по паттерну вывода, до 30 мин), `lsp` (hover/definition/references/symbols через установленный language server), `memory` (память проекта с авто-извлечением фактов и лексическим поиском), `goal_status` (прогресс цели).
+- **Smart routing** — простые реплики автоматически уходят на дешёвую модель (эвристика: длина, код-блоки, ключевые слова), `[smart_routing]` в config.toml, `/smartroute`.
+- **Автокомпакция** — при заполнении контекста (~80%) предупреждение, ~92% — автоматическое сжатие диалога перед следующим ходом.
+- **Кастомные кейбиндинги** — `[keybindings]` в config.toml: palette, settings, multiline_editor, copy_last (зарезервированный Ctrl+C переназначить нельзя).
 - **`view_image`** — модель может смотреть локальные изображения (`tools.view_image`).
 - **Устойчивость цикла** — ретраи при обрыве стрима, прерывание Ctrl+C, лимит шагов сообщает «continue», а не роняет сессию; `/trace` пишет JSONL-лог шагов.
 
