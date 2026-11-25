@@ -8,7 +8,7 @@ import { runAgentLoop, systemPrompt, needsApproval } from "./agent.js";
 import { saveSession, listSessions, loadSession, compactMessages, estimateTokens } from "./session.js";
 import { changedFilesSince } from "./apply-patch.js";
 import { SANDBOX_MODES } from "./sandbox.js";
-import { banner, statusBar, Spinner, toolNotice, turnStart } from "./tui.js";
+import { banner, statusBar, Spinner, toolNotice, turnStart, mdStreamer } from "./tui.js";
 
 const HELP = `Commands:
   /help            show this help
@@ -182,9 +182,10 @@ export async function startREPL(ctx) {
         onText: (d) => {
           if (!sawText.any) {
             spinner.stop();
+            sawText.md = sawText.md || mdStreamer();
             sawText.any = true;
           }
-          process.stdout.write(d);
+          sawText.md.write(d);
         },
         onToolResult: (tool, result) => {
           if (sawText.any || process.env.RTOOLS_QUIET) return;
@@ -199,6 +200,7 @@ export async function startREPL(ctx) {
       });
     } finally {
       spinner.stop();
+      if (sawText.md) sawText.md.end();
     }
   };
 

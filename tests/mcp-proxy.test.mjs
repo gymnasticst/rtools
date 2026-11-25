@@ -666,5 +666,32 @@ if (failures === 0) {
   if (!failures) console.log("EXPORT  : markdown export; web_search max_results schema");
 }
 
+// Case 18: TUI — mdStreamer highlights headings/fences and theme("plain") strips ANSI.
+{
+  const { mdStreamer, theme } = await import("../src/tui.js");
+  const chunks = [];
+  const origWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (s) => { chunks.push(String(s)); return true; };
+  try {
+    const md = mdStreamer({ color: true });
+    md.write("## Head\n```js\nconst x = 1;\n");
+    md.write("```\n`inline` code\n- item");
+    md.end();
+  } finally {
+    process.stdout.write = origWrite;
+  }
+  const out = chunks.join("");
+  if (!/\x1b\[1mHead\x1b\[0m/.test(out)) { console.error(`FAIL: heading not bold (${JSON.stringify(out)})`); failures++; }
+  if (!out.includes("┌ ```js") || !out.includes("│ const x = 1;")) { console.error("FAIL: fenced code not framed"); failures++; }
+  if (!/\x1b\[36minline\x1b\[0m/.test(out)) { console.error("FAIL: inline code not colored"); failures++; }
+  if (!/\x1b\[36m•\x1b\[0m item$/.test(out)) { console.error(`FAIL: bullet/partial line lost (out=${JSON.stringify(out)})`); failures++; }
+
+  const pt = theme({ theme: "plain" });
+  if (pt.bold("x") !== "x" || pt.cyan("y") !== "y") { console.error("FAIL: plain theme still emits ANSI"); failures++; }
+  const ct = theme({ color: true });
+  if (ct.bold("x") !== "\x1b[1mx\x1b[0m") { console.error("FAIL: color theme lost"); failures++; }
+  if (!failures) console.log("TUI     : mdStreamer highlighting; plain/color themes");
+}
+
 console.log("ALL_PROXY_TESTS_PASSED");
 process.exit(failures ? 1 : 0); // undici keep-alive sockets to the fake IdP would otherwise hold the event loop open
