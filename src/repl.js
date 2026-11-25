@@ -28,6 +28,7 @@ import { undoLast, listCheckpoints } from "./checkpoints.js";
 import { jobStatus, jobLogs, startJob, stopJob } from "./jobs.js";
 import { createTracer } from "./trace.js";
 import { builtinTools } from "./tools.js";
+import { parseDroppedFiles } from "./attach.js";
 import { createUsage, addUsage, formatUsage } from "./usage.js";
 import { gitStatus, copyToClipboard, statusBar } from "./tui.js";
 import { banner, Spinner, toolNotice, turnStart, mdStreamer } from "./tui.js";
@@ -66,6 +67,8 @@ const HELP = `Commands:
   /find <text>     search this session's transcript
   /paste           paste a multi-line block; finish with a line "."
   /edit            compose a long prompt in $EDITOR
+  drag & drop      drop a file onto the input window (or paste its path):
+                   text files are inlined, images are sent to the model
   /clear           start a fresh conversation
   /quit            exit`;
 
@@ -1260,8 +1263,12 @@ export async function startREPL(ctx) {
       }
     }
 
-    // @path references: inline the file contents into the prompt (max 3 files)
-    let prompt = input;
+    // dragged/pasted files: quoted paths, file:// URIs and escaped-space paths
+    // (what terminals paste when a file is dropped onto the input) become real
+    // attachments — text inlined, images attached to the message for vision
+    const dropped = parseDroppedFiles(input, ctx.cwd);
+    for (const n of dropped.notices) console.log(n);
+    let prompt = dropped.prompt;
     const atRefs = [...input.matchAll(/@([\w./\\-]+)/g)].map((m) => m[1]).slice(0, 3);
     for (const ref of atRefs) {
       try {
@@ -1280,7 +1287,8 @@ export async function startREPL(ctx) {
       console.log(`auto-compacted context: ~${compacted} tokens was near the ${contextWindow}-token window`);
       console.log(statusBarLine());
     }
-    messages.push({ role: "user", content: prompt });
+    const images = dropped.attachments.filter((a) => a.data && a.media_type);
+    messages.push({ role: "user", content: prompt, ...(images.length ? { images } : {}) });
     appendHistory(input);
     notifyEvent({ type: "agent-turn-start", input });
     try {
