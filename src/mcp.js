@@ -21,6 +21,20 @@ export class McpConnection {
     this.child.stderr.on("data", (d) => {
       stderr += d;
     });
+    // Exit listener stays alive for the whole connection lifetime: it records
+    // the exit and fails every pending request instead of leaving it to hang
+    // until the request timeout.
+    this.exitedCode = undefined;
+    this.exited = new Promise((resolve) => {
+      this.child.on("exit", (code, signal) => {
+        this.exitedCode = code === null ? signal : code;
+        this.exitError = stderr;
+        resolve(code);
+        const err = new Error(`MCP server "${this.name}" exited (code ${this.exitedCode}): ${stderr.slice(0, 300)}`);
+        for (const { reject } of this.pending.values()) reject(err);
+        this.pending.clear();
+      });
+    });
     this.child.stdout.setEncoding("utf8");
     let buf = "";
     this.child.stdout.on("data", (chunk) => {
@@ -37,16 +51,17 @@ export class McpConnection {
         }
       }
     });
-    const exited = new Promise((resolve) => this.child.on("exit", (code) => resolve(code)));
+    // Fire-and-forget: the handshake result is not used, and a rejection (e.g.
+    // the server dying) is handled by the exit listener / tools/list below.
     this.request("initialize", {
       protocolVersion: "2024-11-05",
       capabilities: {},
       clientInfo: { name: "rtools", version: "0.1.0" },
-    });
+    }).catch(() => {});
     this.notify("notifications/initialized", {});
     this.tools = (await this.request("tools/list", {})).tools || [];
     // If the server died immediately, surface it.
-    const code = await Promise.race([exited.then((c) => (c === null ? undefined : c)), new Promise((r) => setTimeout(() => r(undefined), 50))]);
+    const code = await Promise.race([this.exited.then((c) => (c === null ? undefined : c)), new Promise((r) => setTimeout(() => r(undefined), 50))]);
     if (code !== undefined && !this.tools.length) throw new Error(`MCP server exited (${code}): ${stderr.slice(0, 300)}`);
     this.exitError = stderr;
     return this;
@@ -63,6 +78,9 @@ export class McpConnection {
 
   request(method, params) {
     const id = this.nextId++;
+    if (this.exitedCode !== undefined) {
+      return Promise.reject(new Error(`MCP ${this.name}: server exited (code ${this.exitedCode}) before ${method}`));
+    }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);

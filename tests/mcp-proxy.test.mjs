@@ -362,4 +362,61 @@ if (failures === 0) {
 }
 
 
+// Case 10: a server that crashes shortly after start() must reject pending and
+// future requests fast (with an exit error) instead of hanging until the 15s
+// request timeout.
+{
+  const dir = mkdtempSync(path.join(tmpdir(), "rtools-mcp-crash-"));
+  const srvPath = path.join(dir, "crash-server.mjs");
+  writeFileSync(srvPath, [
+    'let buf = "";',
+    'process.stdin.setEncoding("utf8");',
+    'process.stdin.on("data", (c) => {',
+    "  buf += c;",
+    "  let i;",
+    '  while ((i = buf.indexOf("\\n")) >= 0) {',
+    '    const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);',
+    "    if (!line) continue;",
+    "    const msg = JSON.parse(line);",
+    '    if (msg.method === "tools/list") {',
+    '      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { tools: [{ name: "t" }] } }) + "\\n");',
+    "      setTimeout(() => process.exit(3), 200); // crash shortly after answering tools/list",
+    "    }",
+    "    // any other method is never answered",
+    "  }",
+    "});",
+  ].join("\n"));
+  try {
+    const t0 = Date.now();
+    const { McpConnection } = await import(path.join(root, "src", "mcp.js"));
+    const conn = await new McpConnection("crashy", { command: process.execPath, args: [srvPath] }).start();
+    if (conn.tools.length !== 1) { console.error("FAIL: fake crash server did not report tools"); failures++; }
+
+    // A request that is in flight when the server exits must be rejected (not hang).
+    let pendingErr = null;
+    const pending = conn.request("tools/call", { name: "t", arguments: {} }).catch((e) => { pendingErr = e; });
+    await conn.exited;
+    await pending;
+    if (!pendingErr || !/exited/.test(pendingErr.message)) {
+      console.error(`FAIL: in-flight request not rejected on server exit (err=${pendingErr && pendingErr.message})`); failures++;
+    }
+
+    // A request made after the exit must fail fast, not wait for the 15s timeout.
+    const t1 = Date.now();
+    let futureErr = null;
+    await conn.request("tools/call", { name: "t", arguments: {} }).catch((e) => { futureErr = e; });
+    const dt = Date.now() - t1;
+    if (!futureErr || !/exited/.test(futureErr.message)) {
+      console.error(`FAIL: post-exit request not rejected with exit error (err=${futureErr && futureErr.message})`); failures++;
+    }
+    if (dt > 5000) { console.error(`FAIL: post-exit request took ${dt}ms (should fail fast, not time out)`); failures++; }
+    if (conn.exitedCode !== 3) { console.error(`FAIL: exitedCode not recorded (got ${conn.exitedCode})`); failures++; }
+    if (Date.now() - t0 > 10000) { console.error("FAIL: whole case too slow — requests likely hung until timeout"); failures++; }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  if (!failures) console.log("MCP    : server crash after start rejects pending/future requests fast");
+}
+
+
 console.log("ALL_PROXY_TESTS_PASSED");
