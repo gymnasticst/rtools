@@ -738,5 +738,40 @@ model = "mini"
   if (!failures) console.log("CONFIG  : stringifyTOML round-trip; saveConfig merge + delete");
 }
 
+// Case 20: settings palette schema — defs, dotted get/patch, enum cycle, parsing
+{
+  const S = await import("../src/settings-schema.js");
+  const ids = S.SETTING_DEFS.map((d) => d.id);
+  if (new Set(ids).size !== ids.length) { console.error("FAIL: SETTING_DEFS has duplicate ids"); failures++; }
+
+  // dotted get + nested patch
+  const cfg = { model: "m1", tools: { web_search: true, web_search_max_results: 5 } };
+  if (S.getSetting(cfg, "tools.web_search_max_results") !== 5) { console.error("FAIL: getSetting dotted"); failures++; }
+  const patch = S.setSettingPatch("tools.web_search", false);
+  if (JSON.stringify(patch) !== JSON.stringify({ tools: { web_search: false } })) { console.error("FAIL: setSettingPatch shape"); failures++; }
+  S.applyPatch(cfg, patch);
+  if (cfg.tools.web_search !== false || cfg.tools.web_search_max_results !== 5) { console.error("FAIL: applyPatch mutated or lost siblings"); failures++; }
+
+  // enum cycling wraps
+  const eff = S.SETTING_DEFS.find((d) => d.id === "model_reasoning_effort");
+  if (S.nextEnum(eff, "low") !== "medium" || S.nextEnum(eff, "high") !== "low") { console.error("FAIL: nextEnum order/wrap"); failures++; }
+
+  // number parsing: range, invalid, nullable reset
+  const temp = S.SETTING_DEFS.find((d) => d.id === "temperature");
+  if (S.parseSettingInput(temp, "0.7").value !== 0.7) { console.error("FAIL: parse number"); failures++; }
+  if (S.parseSettingInput(temp, "off").value !== null) { console.error("FAIL: nullable reset to null"); failures++; }
+  if (S.parseSettingInput(temp, "abc").ok !== false) { console.error("FAIL: non-number rejected"); failures++; }
+  if (S.parseSettingInput(temp, "5").ok !== false) { console.error("FAIL: out-of-range rejected"); failures++; }
+  const steps = S.SETTING_DEFS.find((d) => d.id === "max_agent_steps");
+  if (S.parseSettingInput(steps, "").ok !== false) { console.error("FAIL: empty value for required number rejected"); failures++; }
+
+  // toggle formatting + enum validation
+  const ws = S.SETTING_DEFS.find((d) => d.id === "tools.web_search");
+  if (S.formatSettingValue(ws, false) !== "off" || S.formatSettingValue(temp, null) !== "default") { console.error("FAIL: formatSettingValue"); failures++; }
+  if (S.parseSettingInput(eff, "ultra").ok !== false) { console.error("FAIL: bad enum accepted"); failures++; }
+
+  if (!failures) console.log("SETTINGS: schema, dotted patch, enum cycle, value parsing");
+}
+
 console.log("ALL_PROXY_TESTS_PASSED");
 process.exit(failures ? 1 : 0); // undici keep-alive sockets to the fake IdP would otherwise hold the event loop open

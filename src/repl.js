@@ -6,6 +6,8 @@ import { execFileSync, spawn as spawnProcess } from "node:child_process";
 import path from "node:path";
 import { runAgentLoop, systemPrompt, needsApproval } from "./agent.js";
 import { saveConfig, BUILTIN_PROVIDERS } from "./config.js";
+import { SETTING_DEFS, getSetting, setSettingPatch, applyPatch, nextEnum, parseSettingInput, formatSettingValue } from "./settings-schema.js";
+import { pick, typeText, confirm, PALETTE_CANCEL } from "./palette.js";
 import { saveSession, listSessions, loadSession, compactMessages, estimateTokens } from "./session.js";
 import { changedFilesSince } from "./apply-patch.js";
 import { SANDBOX_MODES } from "./sandbox.js";
@@ -33,6 +35,7 @@ const HELP = `Commands:
   /compact         summarize and shrink the conversation
   /resume [id|last] resume a saved session (lists sessions if no id; "last" = newest)
   /settings        show every setting (Codex-style config)
+  /palette         open the command palette (Ctrl+P; Ctrl+O = settings)
   /effort <level>  reasoning effort: low | medium | high
   /verbosity <v>   answer verbosity: low | medium | high
   /clear           start a fresh conversation
@@ -47,25 +50,36 @@ export async function startREPL(ctx) {
   const SLASH_COMMANDS = [
     "/init", "/review", "/permissions", "/plan", "/prompts", "/tools", "/skills",
     "/status", "/diff", "/compact", "/resume", "/settings", "/effort", "/verbosity",
-    "/model", "/provider", "/agent", "/clear", "/quit",
+    "/model", "/provider", "/agent", "/clear", "/quit", "/palette",
   ];
   const completer = (line) => {
     const hits = SLASH_COMMANDS.filter((c) => c.startsWith(line));
     return [hits.length ? hits : SLASH_COMMANDS, line];
   };
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, completer });
-  // readline/promises drops lines that arrive while no question is pending
-  // (e.g. all piped input at once), so keep our own queue.
+  // OpenCode-style palettes need raw-mode stdin, so they run without the
+  // readline interface: the old one is closed (pending waiters get a tick so
+  // the loop re-parks), the palette owns the terminal, then a fresh interface
+  // takes over. The sentinel wakes the loop without being treated as input.
+  const PALETTE_TICK = "\x00palette-tick";
+  let rl = null;
+  let suppressClose = false;
   const lineQueue = [];
   const lineWaiters = [];
-  rl.on("line", (l) => {
-    const w = lineWaiters.shift();
-    if (w) w(l);
-    else lineQueue.push(l);
-  });
-  rl.on("close", () => {
-    while (lineWaiters.length) lineWaiters.shift()(null);
-  });
+  const makeRL = () => {
+    rl = readline.createInterface({ input: process.stdin, output: process.stdout, completer });
+    rl.on("line", (l) => {
+      const w = lineWaiters.shift();
+      if (w) w(l);
+      else lineQueue.push(l);
+    });
+    rl.on("close", () => {
+      while (lineWaiters.length) lineWaiters.shift()(suppressClose ? PALETTE_TICK : null);
+      suppressClose = false;
+    });
+  };
+  makeRL();
+  // readline/promises drops lines that arrive while no question is pending
+  // (e.g. all piped input at once), so keep our own queue.
   const nextLine = (prompt) => {
     if (lineQueue.length) return Promise.resolve(lineQueue.shift());
     return new Promise((resolve) => lineWaiters.push(resolve)).then((l) => {
@@ -187,7 +201,7 @@ export async function startREPL(ctx) {
         onText: (d) => {
           if (!sawText.any) {
             spinner.stop();
-            sawText.md = sawText.md || mdStreamer();
+            sawText.md = sawText.md || mdStreamer({ theme: ctx.cfg.theme, color: ctx.cfg.color });
             sawText.any = true;
           }
           sawText.md.write(d);
@@ -265,6 +279,141 @@ export async function startREPL(ctx) {
     console.log(`approval: ${approval}, sandbox: ${sandbox}`);
   };
 
+  // --- OpenCode-style Ctrl+P command palette / Ctrl+O settings -------------
+  const PALETTE_COMMANDS = [
+    ["/help", "show all commands"],
+    ["/init", "create AGENTS.md"],
+    ["/review", "review changes"],
+    ["/permissions", "approval + sandbox"],
+    ["/plan", "toggle plan mode"],
+    ["/model", "switch model"],
+    ["/model list", "list models"],
+    ["/provider", "switch provider"],
+    ["/provider list", "list providers"],
+    ["/agent list", "agent profiles"],
+    ["/policy", "approval policy"],
+    ["/sandbox", "sandbox mode"],
+    ["/tools", "list tools"],
+    ["/skills", "list skills"],
+    ["/status", "current settings"],
+    ["/diff", "changed files"],
+    ["/export", "export session to Markdown"],
+    ["/compact", "shrink the conversation"],
+    ["/resume", "resume a saved session"],
+    ["/effort", "reasoning effort"],
+    ["/verbosity", "answer verbosity"],
+    ["/clear", "new conversation"],
+    ["/quit", "exit"],
+  ];
+  const providerIds = () => [...new Set([...Object.keys(BUILTIN_PROVIDERS), ...Object.keys(ctx.cfg.model_providers || {})])];
+  const LIVE_APPLY = {
+    model: (v) => { model = v; },
+    approval_policy: (v) => { approval = v; },
+    sandbox_mode: (v) => { sandbox = v; },
+    model_reasoning_effort: (v) => { effort = v; },
+    model_verbosity: (v) => { verbosity = v; },
+    temperature: (v) => { temperature = v; },
+    top_p: (v) => { top_p = v; },
+    max_output_tokens: (v) => { max_output_tokens = v; },
+    max_agent_steps: () => {},
+  };
+  const applySetting = async (def, value) => {
+    applyPatch(ctx.cfg, setSettingPatch(def.id, value));
+    LIVE_APPLY[def.id]?.(value);
+    const shown = formatSettingValue(def, value);
+    console.log(`${def.label}: ${shown}${def.note ? ` (${def.note})` : def.live ? "" : " (restart to apply)"}`);
+    if (await confirm({ prompt: `Save ${def.label} to ~/.rtools/config.toml? [y/N]` })) {
+      // null is a reset to the provider default: drop the key instead of
+      // writing `null`, which stringifyTOML would save as "" and validation
+      // would reject on the next launch.
+      try {
+        saveConfig(setSettingPatch(def.id, value === null ? undefined : value));
+        console.log("saved");
+      } catch (e) {
+        console.log(`not saved: ${e.message}`);
+      }
+    }
+  };
+  const settingsUI = async () => {
+    while (true) {
+      const items = SETTING_DEFS.map((d) => ({
+        label: `${d.label}: ${formatSettingValue(d, getSetting(ctx.cfg, d.id))}`,
+        hint: d.desc,
+        value: d.id,
+      }));
+      const id = await pick({ title: "Settings — type to filter, Enter to change, Esc to close", items });
+      if (!id) return;
+      const def = SETTING_DEFS.find((d) => d.id === id);
+      const cur = getSetting(ctx.cfg, id);
+      let value;
+      if (def.kind === "enum") {
+        const opts = def.values || providerIds();
+        value = await pick({
+          title: `${def.label} — Enter to pick, Esc to keep`,
+          items: opts.map((v) => ({ label: v, hint: v === cur ? "current" : "", value: v })),
+        });
+        if (value == null || value === cur) continue;
+      } else if (def.kind === "toggle") {
+        value = !cur;
+      } else {
+        const text = await typeText({
+          title: `${def.label} — ${def.desc}`,
+          prompt: def.kind === "number" ? "value" : "model id",
+          initial: cur == null ? "" : String(cur),
+        });
+        if (text == null) continue;
+        const parsed = parseSettingInput(def, text);
+        if (!parsed.ok) {
+          console.log(`invalid ${def.label}: ${parsed.error}`);
+          continue;
+        }
+        value = parsed.value;
+      }
+      await applySetting(def, value);
+    }
+  };
+  const commandsUI = async () => {
+    const sel = await pick({
+      title: "Commands — Ctrl+P · type to filter · Enter to run",
+      items: [
+        { label: "Open settings", hint: "Ctrl+O", value: "__settings" },
+        ...PALETTE_COMMANDS.map(([cmd, desc]) => ({ label: cmd, hint: desc, value: cmd })),
+      ],
+    });
+    if (sel === "__settings") {
+      await settingsUI();
+      return null;
+    }
+    return sel;
+  };
+  let paletteBusy = false;
+  const openPalette = async (kind) => {
+    if (paletteBusy) return;
+    if (!process.stdin.isTTY) {
+      console.log("(the palette needs an interactive terminal)");
+      return;
+    }
+    paletteBusy = true;
+    suppressClose = true;
+    rl.close();
+    let feed = null;
+    try {
+      feed = kind === "settings" ? (await settingsUI(), null) : await commandsUI();
+    } finally {
+      makeRL();
+      paletteBusy = false;
+    }
+    if (feed) lineQueue.push(feed);
+  };
+  if (process.stdin.isTTY) {
+    process.stdin.on("keypress", (str, key) => {
+      if (paletteBusy || !key) return;
+      if (key.ctrl && key.name === "p") void openPalette("commands");
+      else if (key.ctrl && key.name === "o") void openPalette("settings");
+    });
+  }
+  // --- end palettes --------------------------------------------------------
+
   while (true) {
     let line;
     try {
@@ -280,6 +429,7 @@ export async function startREPL(ctx) {
       process.stdout.write("\n");
       break;
     }
+    if (line === PALETTE_TICK) continue;
     const input = line.trim();
     if (!input) continue;
     if (input === "?" || input === "/") {
@@ -629,6 +779,9 @@ export async function startREPL(ctx) {
         }
         case "/settings":
           console.log(JSON.stringify({ ...ctx.cfg, model_providers: Object.keys(ctx.cfg.model_providers || {}), mcp_servers: Object.keys(ctx.cfg.mcp_servers || {}) }, null, 2));
+          continue;
+        case "/palette":
+          await openPalette("commands");
           continue;
         case "/effort":
           if (["low", "medium", "high"].includes(rest[0])) {
