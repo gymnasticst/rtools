@@ -57,8 +57,8 @@ export function banner({ version, model, effort, provider, cwd }) {
   );
 }
 
-export function statusBar({ model, effort, tokensLeft = 100 }) {
-  return C.gray(`  ${tokensLeft}% context left · ${model} ${effort} · ? for shortcuts`);
+export function statusBar({ model, effort, tokensLeft = 100, tokensUsed = 0 }) {
+  return C.gray(`  ${tokensLeft}% context left · ~${tokensUsed} tok · ${model} ${effort} · ? for shortcuts`);
 }
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

@@ -2,7 +2,7 @@
 // Covers both branches of post(): unauthenticated probe and Bearer-token path.
 // Run: npm test
 import http from "node:http";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -577,6 +577,53 @@ if (failures === 0) {
     rmSync(cwd, { recursive: true, force: true });
   }
   if (!failures) console.log("TOOLS  : write/edit containment; fetch re-checks SSRF on redirects");
+}
+
+// Case 16: read-only git tool (allowed subcommands only), session pruning and
+// the status-bar token estimate.
+{
+  const { builtinTools } = await import("../src/tools.js");
+  const cwd = mkdtempSync(path.join(tmpdir(), "rtools-git-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "t@t"], { cwd });
+  execFileSync("git", ["config", "user.name", "t"], { cwd });
+  writeFileSync(path.join(cwd, "a.txt"), "hello\n");
+  execFileSync("git", ["add", "."], { cwd });
+  execFileSync("git", ["commit", "-qm", "init"], { cwd });
+  const tools = builtinTools({ cwd, skills: [] });
+  const git = tools.find((t) => t.name === "git");
+  try {
+    if (!git) { console.error("FAIL: git tool not found"); failures++; }
+    else {
+      const log = await git.handler({ subcommand: "log", args: ["--oneline"] });
+      if (!/init/.test(log)) { console.error(`FAIL: git log output (out=${log})`); failures++; }
+      const refused = await git.handler({ subcommand: "push", args: ["origin", "main"] });
+      if (!/not allowed/.test(refused)) { console.error(`FAIL: git push not refused (out=${refused})`); failures++; }
+      const bad = await git.handler({ subcommand: "status", args: ["--upload-packages"] });
+      if (!/^Error:/m.test(bad)) { console.error(`FAIL: git failure not reported as error (out=${bad})`); failures++; }
+    }
+
+    const { saveSession, listSessions, pruneSessions, estimateTokens } = await import("../src/session.js");
+    process.env.RTOOLS_MAX_SESSIONS = "3";
+    const home = mkdtempSync(path.join(tmpdir(), "rtools-sess-"));
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      for (let i = 0; i < 5; i++) await saveSession({ id: `00000000-0000-4000-8000-00000000000${i}`, model: "m", provider: "p", messages: [{ role: "user", content: "x" }], cwd });
+      const after = await listSessions();
+      if (after.length !== 3) { console.error(`FAIL: prune kept ${after.length} sessions, want 3`); failures++; }
+      const removed = await pruneSessions(1);
+      if (removed !== 2) { console.error(`FAIL: pruneSessions(1) removed ${removed}, want 2`); failures++; }
+    } finally {
+      process.env.HOME = oldHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+    const toks = estimateTokens([{ role: "user", content: "abcd".repeat(100) }, { role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "shell", arguments: `{"command":"${"x".repeat(400)}"}` } } ] }]);
+    if (toks !== 205) { console.error(`FAIL: estimateTokens=${toks}, want 205`); failures++; }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+  if (!failures) console.log("SESSION: git tool read-only; session prune; token estimate");
 }
 
 console.log("ALL_PROXY_TESTS_PASSED");

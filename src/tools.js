@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { execWithSandbox } from "./sandbox.js";
 
 // Codex-style [shell_environment_policy]: inherit all|core|none, ignore list, set map
@@ -299,6 +300,31 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
           })
         );
         return truncate(lines.sort().join("\n"));
+      },
+    },
+    {
+      name: "git",
+      kind: "read",
+      description: "Read-only git inspection: status, diff, log, show, branch, blame, rev-parse. Returns the command output.",
+      parameters: {
+        type: "object",
+        properties: {
+          subcommand: { type: "string", description: "One of: status, diff, log, show, branch, blame, rev-parse" },
+          args: { type: "array", items: { type: "string" }, description: "Extra arguments, e.g. [\"--stat\"] or [\"HEAD~1\"]" },
+        },
+        required: ["subcommand"],
+      },
+      handler: async ({ subcommand, args = [] }) => {
+        const ALLOWED = ["status", "diff", "log", "show", "branch", "blame", "rev-parse"];
+        if (!ALLOWED.includes(subcommand)) {
+          return `Error: git "${subcommand}" not allowed (read-only subcommands: ${ALLOWED.join(", ")})`;
+        }
+        if (!Array.isArray(args) || args.some((a) => typeof a !== "string")) return "Error: args must be an array of strings";
+        try {
+          return truncate(execFileSync("git", [subcommand, ...args], { cwd, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 }));
+        } catch (e) {
+          return `Error: git ${subcommand} failed: ${String(e.stderr || e.message).slice(0, 300)}`;
+        }
       },
     },
     {

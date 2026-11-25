@@ -1,15 +1,36 @@
 // Session persistence (/resume) and context compaction (/compact)
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
 const SESSIONS_DIR = () => path.join(os.homedir(), ".rtools", "sessions");
 
+const MAX_SESSIONS = () => Number(process.env.RTOOLS_MAX_SESSIONS) || 50;
+
 export async function saveSession({ id, model, provider, messages, cwd }) {
   await mkdir(SESSIONS_DIR(), { recursive: true });
   const file = path.join(SESSIONS_DIR(), `${id}.json`);
   await writeFile(file, JSON.stringify({ id, model, provider, messages, cwd, saved_at: new Date().toISOString() }), "utf8");
+  try {
+    await pruneSessions(MAX_SESSIONS());
+  } catch {
+    // pruning is best-effort
+  }
   return file;
+}
+
+// Keep only the newest `max` session files; returns the number removed.
+export async function pruneSessions(max) {
+  const all = await listSessions();
+  const old = all.slice(max);
+  for (const s of old) {
+    try {
+      await unlink(path.join(SESSIONS_DIR(), `${s.id}.json`));
+    } catch {
+      // already gone
+    }
+  }
+  return old.length;
 }
 
 export async function listSessions() {
@@ -55,4 +76,14 @@ export function compactMessages(messages, keep = 6) {
     content: `[Earlier conversation, compacted. Digest of the older part:\n${digest}\nContinue from here.]`,
   };
   return [...system, summary, ...tail];
+}
+
+// Rough context-size estimate (~4 chars per token) for the status bar.
+export function estimateTokens(messages) {
+  let chars = 0;
+  for (const m of messages) {
+    if (typeof m.content === "string") chars += m.content.length;
+    for (const tc of m.tool_calls || []) chars += (tc.function?.arguments || "").length + tc.function?.name.length;
+  }
+  return Math.ceil(chars / 4);
 }

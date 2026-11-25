@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { execFileSync, spawn as spawnProcess } from "node:child_process";
 import path from "node:path";
 import { runAgentLoop, systemPrompt, needsApproval } from "./agent.js";
-import { saveSession, listSessions, loadSession, compactMessages } from "./session.js";
+import { saveSession, listSessions, loadSession, compactMessages, estimateTokens } from "./session.js";
 import { changedFilesSince } from "./apply-patch.js";
 import { SANDBOX_MODES } from "./sandbox.js";
 import { banner, statusBar, Spinner, toolNotice, turnStart } from "./tui.js";
@@ -25,7 +25,7 @@ const HELP = `Commands:
   /status          show current settings
   /diff            show changed files (git status)
   /compact         summarize and shrink the conversation
-  /resume [id]     resume a saved session (lists sessions if no id)
+  /resume [id|last] resume a saved session (lists sessions if no id; "last" = newest)
   /settings        show every setting (Codex-style config)
   /effort <level>  reasoning effort: low | medium | high
   /verbosity <v>   answer verbosity: low | medium | high
@@ -96,6 +96,11 @@ export async function startREPL(ctx) {
   } = ctx.cfg;
   const settings = () => ({ effort, verbosity, temperature, top_p, max_output_tokens });
 
+  const contextWindow = Number(ctx.cfg.context_window) || 128000;
+  const statusBarLine = () => {
+    const used = estimateTokens(messages);
+    return statusBar({ model, effort, tokensLeft: Math.max(0, Math.round((1 - used / contextWindow) * 100)), tokensUsed: used });
+  };
   const notifyEvent = (event) => {
     if (!ctx.cfg.notify) return;
     const [prog, ...args] = Array.isArray(ctx.cfg.notify) ? ctx.cfg.notify : [ctx.cfg.notify];
@@ -119,7 +124,7 @@ export async function startREPL(ctx) {
   };
 
   banner({ version: "0.1.0", model, effort, provider: ctx.provider.id, cwd: ctx.cwd });
-  console.log(statusBar({ model, effort }));
+  console.log(statusBarLine());
 
   let planMode = false;
   let planModeToggled = false;
@@ -288,7 +293,7 @@ export async function startREPL(ctx) {
         messages.push({ role: "user", content: text });
         await runTurn(text);
         process.stdout.write("\n");
-        console.log(statusBar({ model, effort }));
+        console.log(statusBarLine());
         await persist();
       } catch (e) {
         console.log(`error: ${e.message}`);
@@ -391,13 +396,13 @@ export async function startREPL(ctx) {
         }
         case "/resume": {
           try {
+            const all = await listSessions();
             if (!rest[0]) {
-              const all = await listSessions();
               console.log(all.map((s) => `${s.id.slice(0, 8)}  ${s.saved_at}  ${s.preview}`).join("\n") || "(no saved sessions)");
+              console.log("(tip: /resume last opens the most recent session)");
               continue;
             }
-            const all = await listSessions();
-            const match = all.find((s) => s.id.startsWith(rest[0]));
+            const match = rest[0] === "last" ? all[0] : all.find((s) => s.id.startsWith(rest[0]));
             if (!match) {
               console.log("no such session");
               continue;
@@ -443,7 +448,7 @@ export async function startREPL(ctx) {
     try {
       await runTurn(input);
       process.stdout.write("\n");
-      console.log(statusBar({ model, effort }));
+      console.log(statusBarLine());
       notifyEvent({ type: "agent-turn-end", "last-assistant-message": "complete" });
       await persist();
     } catch (e) {
