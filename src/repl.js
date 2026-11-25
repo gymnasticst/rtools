@@ -24,6 +24,7 @@ const HELP = `Commands:
   /skills          list available skills
   /status          show current settings
   /diff            show changed files (git status)
+  /export [file]   export this session to a Markdown file (default: rtools-session-<id>.md)
   /compact         summarize and shrink the conversation
   /resume [id|last] resume a saved session (lists sessions if no id; "last" = newest)
   /settings        show every setting (Codex-style config)
@@ -148,6 +149,17 @@ export async function startREPL(ctx) {
     messages = [{ role: "system", content: systemPrompt(ctx) }];
   };
   newSession();
+
+  // Shrink the conversation automatically when it approaches the context window.
+  const autoCompact = () => {
+    const used = estimateTokens(messages);
+    const limit = Math.floor(contextWindow * 0.85);
+    if (used <= limit) return null;
+    const next = compactMessages(messages);
+    if (!next) return null;
+    messages = next;
+    return used;
+  };
 
   const persist = () =>
     saveSession({ id: sessionId, model, provider: ctx.provider.id, messages, cwd: ctx.cwd }).catch(() => {});
@@ -416,6 +428,16 @@ export async function startREPL(ctx) {
           }
           continue;
         }
+        case "/export": {
+          try {
+            const { exportSession } = await import("./session.js");
+            const file = await exportSession({ id: sessionId, messages, model, provider: ctx.provider.id, outPath: rest[0] });
+            console.log(`exported to ${file}`);
+          } catch (e) {
+            console.log(`error: ${e.message}`);
+          }
+          continue;
+        }
         case "/settings":
           console.log(JSON.stringify({ ...ctx.cfg, model_providers: Object.keys(ctx.cfg.model_providers || {}), mcp_servers: Object.keys(ctx.cfg.mcp_servers || {}) }, null, 2));
           continue;
@@ -442,6 +464,11 @@ export async function startREPL(ctx) {
     }
 
     turnStart(input);
+    const compacted = autoCompact();
+    if (compacted !== null) {
+      console.log(`auto-compacted context: ~${compacted} tokens was near the ${contextWindow}-token window`);
+      console.log(statusBarLine());
+    }
     messages.push({ role: "user", content: input });
     appendHistory(input);
     notifyEvent({ type: "agent-turn-start", input });

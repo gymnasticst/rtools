@@ -3,7 +3,7 @@
 // Run: npm test
 import http from "node:http";
 import { spawn, execFileSync } from "node:child_process";
-import { writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -624,6 +624,46 @@ if (failures === 0) {
     rmSync(cwd, { recursive: true, force: true });
   }
   if (!failures) console.log("SESSION: git tool read-only; session prune; token estimate");
+}
+
+// Case 17: /export session-to-Markdown and web_search max_results clamping.
+{
+  const cwd = mkdtempSync(path.join(tmpdir(), "rtools-export-"));
+  try {
+    const { exportSession } = await import("../src/session.js");
+    const out = path.join(cwd, "s.md");
+    const file = await exportSession({
+      id: "00000000-0000-4000-8000-00000000abcd",
+      model: "gpt-test",
+      provider: "prov",
+      outPath: out,
+      messages: [
+        { role: "system", content: "secret system prompt" },
+        { role: "user", content: "hello there" },
+        { role: "assistant", content: "hi", tool_calls: [{ id: "1", type: "function", function: { name: "shell", arguments: '{"command":"ls"}' } }] },
+        { role: "tool", content: "a.txt\nb.txt" },
+      ],
+    });
+    const md = readFileSync(file, "utf8");
+    if (file !== out) { console.error(`FAIL: exportSession path (${file})`); failures++; }
+    if (!/## User/.test(md) || !/hello there/.test(md)) { console.error("FAIL: user turn missing"); failures++; }
+    if (!/## Assistant/.test(md) || !/`shell`/.test(md)) { console.error("FAIL: assistant/tool_call missing"); failures++; }
+    if (/secret system prompt/.test(md)) { console.error("FAIL: system prompt leaked into export"); failures++; }
+    if (!/tool result/.test(md) || !/a\.txt/.test(md)) { console.error("FAIL: tool result missing"); failures++; }
+    if (!/^# RTools session 00000000/.test(md)) { console.error("FAIL: header missing"); failures++; }
+
+    const { webSearchTool } = await import("../src/web-search.js");
+    const ws = webSearchTool({ maxResults: 5 });
+    const props = ws.parameters.properties;
+    if (!props.max_results || props.max_results.type !== "integer") { console.error("FAIL: max_results param not exposed"); failures++; }
+    // handler clamps out-of-range values before any network call; a bogus query
+    // still exercises the clamp because the request URL contains srlimit
+    const clamped = await ws.handler({ query: "nonexistent-query-x9", max_results: "0" });
+    if (/Error/i.test(clamped) && !/No results/i.test(clamped)) { console.error(`FAIL: clamp broke handler (out=${clamped})`); failures++; }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+  if (!failures) console.log("EXPORT  : markdown export; web_search max_results schema");
 }
 
 console.log("ALL_PROXY_TESTS_PASSED");

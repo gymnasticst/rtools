@@ -19,10 +19,14 @@ export function webSearchTool({ maxResults = 5 }) {
     description: "Search the public web and return results (title, url, snippet).",
     parameters: {
       type: "object",
-      properties: { query: { type: "string", description: "Search query" } },
+      properties: {
+        query: { type: "string", description: "Search query" },
+        max_results: { type: "integer", description: "How many results to return, 1-10 (default 5)" },
+      },
       required: ["query"],
     },
-    handler: async ({ query }) => {
+    handler: async ({ query, max_results }) => {
+      const want = Math.min(10, Math.max(1, Number(max_results) || maxResults));
       const results = [];
       const curl = (url) =>
         run("curl", ["-s", "-m", "15", "-A", "rtools-cli", url], { timeout: 20000, maxBuffer: 5 * 1024 * 1024 });

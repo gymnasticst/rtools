@@ -87,3 +87,36 @@ export function estimateTokens(messages) {
   }
   return Math.ceil(chars / 4);
 }
+
+// Export a session to Markdown (chat + tool calls) for reports and reviews.
+// Returns the path of the written file.
+export async function exportSession({ id = "session", messages, model, provider, outPath }) {
+  const lines = [
+    `# RTools session ${id}`,
+    "",
+    `- model: ${model || "(unknown)"}`,
+    `- provider: ${provider || "(unknown)"}`,
+    `- exported: ${new Date().toISOString()}`,
+    "",
+    "---",
+    "",
+  ];
+  for (const m of messages || []) {
+    if (m.role === "system") continue;
+    if (m.role === "user") {
+      lines.push(`## User`, "", `${m.content}`, "");
+    } else if (m.role === "assistant") {
+      if (m.content) lines.push(`## Assistant`, "", `${m.content}`, "");
+      for (const tc of m.tool_calls || []) {
+        lines.push(`- called \`${tc.function?.name}\` with \`${tc.function?.arguments}\``);
+      }
+      if (m.tool_calls?.length) lines.push("");
+    } else if (m.role === "tool") {
+      lines.push(`<details><summary>tool result</summary>`, "", "````", `${String(m.content).slice(0, 4000)}`, "````", "</details>", "");
+    }
+  }
+  const { writeFile } = await import("node:fs/promises");
+  const file = outPath || `rtools-session-${String(id).slice(0, 8)}.md`;
+  await writeFile(file, lines.join("\n"), "utf8");
+  return file;
+}

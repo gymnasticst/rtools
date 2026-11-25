@@ -91,7 +91,7 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 
 - Запуск команд shell (с песочницей: read-only / workspace / danger; в Linux — bubblewrap, при его отсутствии fail-closed).
 - Чтение, запись и правка файлов (пути строго внутри рабочей директории), поиск по содержимому и по маске, fetch URL с защитой от SSRF.
-- Применение патчей (`apply_patch`), планирование работы (`update_plan`), веб-поиск (`tools.web_search = true`).
+- Применение патчей (`apply_patch`), планирование работы (`update_plan`), веб-поиск (`tools.web_search = true`, на один вызов можно запросить 1–10 результатов через `max_results`).
 - Read-only инструмент `git` (status/diff/log/show/branch/blame/rev-parse; изменяющие команды отклоняются).
 - Инструменты всех подключённых MCP-серверов и плагинов.
 - Сессии: хранятся последние 50 (`RTOOLS_MAX_SESSIONS`), `/resume last` открывает самую свежую.
@@ -121,7 +121,9 @@ description: Что делает скилл
 
 ## Slash-команды в сессии
 
-`/help /init /review /plan /model /provider /policy /sandbox /prompts /tools /skills /status /diff /compact /resume /settings /effort /verbosity /permissions /clear /quit`
+`/help /init /review /plan /model /provider /policy /sandbox /prompts /tools /skills /status /diff /export /compact /resume /settings /effort /verbosity /permissions /clear /quit`
+
+`/export [file]` сохраняет сессию в Markdown (чат и вызовы инструментов) — по умолчанию `rtools-session-<id>.md`. При приближении к лимиту контекстного окна (`context_window`, по умолчанию 128k) сессия ужимается автоматически — вручную вызывать `/compact` не нужно.
 
 ## Разработка
 
