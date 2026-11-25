@@ -6,6 +6,9 @@ set -eu
 
 REPO="${RTOOLS_REPO:-gymnasticst/rtools}"
 REPO_RAW="https://raw.githubusercontent.com/${REPO}/main"
+# Default version is rewritten on every push by .github/workflows/auto-release.yml.
+# "latest" falls back to resolving the newest release from the GitHub API below.
+DEFAULT_VERSION="latest"
 PREFIX="${RTOOLS_PREFIX:-$HOME/.local/bin}"
 VERSION_FLAG=""
 
@@ -31,6 +34,8 @@ if [ -n "$VERSION_FLAG" ]; then
   VERSION="$VERSION_FLAG"
 elif [ -n "${RTOOLS_VERSION:-}" ]; then
   VERSION="$RTOOLS_VERSION"
+elif [ -n "${DEFAULT_VERSION:-}" ] && [ "$DEFAULT_VERSION" != "latest" ]; then
+  VERSION="$DEFAULT_VERSION"
 else
   say "Fetching the latest RTools release..."
   VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')"

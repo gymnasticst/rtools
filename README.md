@@ -3,6 +3,7 @@
 RTools — CLI-агент для программирования: интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
 [![CI](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml/badge.svg)](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml)
+![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-blue)
 
 ## Содержание
@@ -131,6 +132,10 @@ npm test    # весь тестовый прогон (tests/mcp-proxy.test.mjs)
 CI (`.github/workflows/ci.yml`) гоняет `npm test` на каждый push в `main` и на PR; релизы — по git-тегам (`.github/workflows/release.yml`). Структура кода: `bin/` — точки входа, `src/` — ядро (агент, инструменты, песочница, MCP, сессии, TUI, конфиг), `tests/` — тесты.
 
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
+
+## История версий
+
+Каждый пуш в `main` автоматически бампает patch-версию, публикует релиз (тарбол и SHASUMS) и обновляет версию в `install.sh` и в этом README.
 
 ## Лицензия
 
