@@ -25,7 +25,7 @@ export function startJob({ name, command, cwd }) {
   const existing = jobs.get(name);
   if (existing?.status === "running") return { ok: false, error: `job "${name}" is already running (stop it first)` };
   if (!existing && jobs.size >= MAX_JOBS) return { ok: false, error: `too many jobs (${MAX_JOBS}) — reuse a name or stop one` };
-  const child = spawn("bash", ["-lc", command], { cwd, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn("bash", ["-lc", command], { cwd, env: process.env, stdio: ["ignore", "pipe", "pipe"], detached: true });
   const job = { name, command, child, status: "running", code: null, lines: [], started: new Date().toISOString() };
   const push = (d) => {
     for (const l of String(d).split("\n")) {
@@ -60,15 +60,19 @@ export function jobStatus(name) {
 export function jobLogs(name, lines = 40) {
   const j = jobs.get(name);
   if (!j) return null;
-  const n = Math.floor(Number(lines) || 40);
+  const n = Math.floor(typeof lines === "number" ? lines : Number(lines) || 40);
   return n <= 0 ? [] : j.lines.slice(-n);
 }
 
+// Signal the whole process group: bash defers a trapped TERM until its current
+// foreground child exits, so killing only the shell would leave children (and
+// graceful shutdown) hanging. SIGKILL as the fallback after a grace period.
 const terminate = (child) => {
   if (child.exitCode !== null || child.signalCode) return;
-  child.kill("SIGTERM");
+  const group = -child.pid;
+  try { process.kill(group, "SIGTERM"); } catch {}
   setTimeout(() => {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    try { process.kill(group, "SIGKILL"); } catch {}
   }, 5000).unref();
 };
 

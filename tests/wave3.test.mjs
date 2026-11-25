@@ -62,6 +62,22 @@ for (let i = 0; i < 20 && st === "running"; i++) {
 }
 check("status after stop", st !== "running");
 check("logs of unknown job", jobLogs("nope") === null);
+check("jobLogs zero lines -> empty", jobLogs("t1", 0).length === 0);
+check("jobLogs negative -> empty", jobLogs("t1", -5).length === 0);
+check("jobLogs default cap", jobLogs("t1").length <= 40);
+
+// graceful stop: SIGTERM first, process gets a chance to clean up
+const graceful = startJob({ name: "t2", command: "trap 'echo graceful; exit 0' TERM; sleep 30", cwd: dir });
+check("graceful job started", graceful.ok);
+await new Promise((r) => setTimeout(r, 700));
+stopJob("t2");
+let st2 = "running";
+for (let i = 0; i < 20 && st2 === "running"; i++) {
+  await new Promise((r) => setTimeout(r, 100));
+  st2 = jobStatus("t2").status;
+}
+check("graceful stop exits via SIGTERM", st2 === "exited" && jobStatus("t2").code === 0);
+check("graceful trap ran", jobLogs("t2").some((l) => l.includes("graceful")));
 
 // --- hooks.js
 const { runHook } = await import("../src/hooks.js");
@@ -84,9 +100,11 @@ check("no guessed prices", unpriced.includes("model_pricing"));
 
 // --- team.js validation (no provider call)
 const { teamTool } = await import("../src/team.js");
+const { READ_KINDS } = await import("../src/agent.js");
 const team = teamTool({ ctx: { tools: [], cfg: {} } });
 check("team rejects <2 roles", (await team.handler({ task: "t", roles: ["solo"] })).startsWith("Error:"));
 check("team rejects >4 roles", (await team.handler({ task: "t", roles: ["a", "b", "c", "d", "e"] })).startsWith("Error:"));
+check("READ_KINDS exported for read-only filter", READ_KINDS.has("read") && READ_KINDS.has("git"));
 
 // --- view_image tool contract
 const { viewImageTool } = await import("../src/tools.js");
