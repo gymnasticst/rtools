@@ -29,7 +29,6 @@ jobs:
         with:
           files: release/*.tgz
       - name: npm publish
-        if: ${{ secrets.NPM_TOKEN != '' }}
-        run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: ${{ env.NODE_AUTH_TOKEN != '' }}
