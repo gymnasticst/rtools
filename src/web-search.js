@@ -8,8 +8,18 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
+// Decode entities in one pass with a fixed map: "&amp;lt;" stays "&lt;"
+// (text), never re-decoded to "<" — no double decoding.
+const ENTITIES = { "&quot;": '"', "&amp;": "&", "&lt;": "<", "&gt;": ">", "&#39;": "'", "&apos;": "'" };
+const ENTITY_RE = /&(?:quot|amp|lt|gt|#39|apos);/g;
+
 function clean(html) {
-  return html.replace(/<[^>]+>/g, "").replace(/&quot;/g, '"').replace(/&amp;/g, "&").trim();
+  let prev;
+  do {
+    prev = html;
+    html = html.replace(/<[^>]+>/g, "");
+  } while (html !== prev);
+  return html.replace(ENTITY_RE, (m) => ENTITIES[m]).trim();
 }
 
 export function webSearchTool({ maxResults = 5 }) {

@@ -521,17 +521,28 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
         const raw = capped;
         const type = res.headers.get("content-type") || "";
         let body = raw;
+// Strip HTML tags and decode entities safely: tags are removed in a loop
+// until none remain (a single pass can leave crafted tags like "<scr<script>"),
+// entities are decoded in one pass with a fixed map so "&amp;lt;" becomes
+// "&lt;" (text), never "<" — no double decoding.
+function stripHtmlTags(s) {
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]+>/g, " ");
+  } while (s !== prev);
+  return s;
+}
+
+const ENTITIES = { "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&apos;": "'" };
+const ENTITY_RE = /&(?:nbsp|amp|lt|gt|quot|#39|apos);/g;
+
+function decodeEntities(s) {
+  return s.replace(ENTITY_RE, (m) => ENTITIES[m]);
+}
+
         if (type.includes("text/html")) {
-          body = raw
-            .replace(/<script[\s\S]*?<\/script>/gi, "")
-            .replace(/<style[\s\S]*?<\/style>/gi, "")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/&nbsp;/g, " ")
-            .replace(/&amp;/g, "&")
-            .replace(/&lt;/g, "<")
-            .replace(/&gt;/g, ">")
-            .replace(/\s+/g, " ")
-            .trim();
+          body = decodeEntities(stripHtmlTags(raw).replace(/\s+/g, " ")).trim();
         }
         return `HTTP ${res.status} ${type.split(";")[0]}\n\n${truncate(body.slice(0, max))}`;
       },

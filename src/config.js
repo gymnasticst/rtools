@@ -41,8 +41,13 @@ export const DEFAULT_SKILLS_DIRS = () => [
 
 export const RTOOLS_HOME = () => path.join(os.homedir(), ".rtools");
 
+// Keys that must never be merged from a user-controlled file: assigning them
+// pollutes Object.prototype.
+const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 function deepMerge(target, src) {
   for (const [k, v] of Object.entries(src)) {
+    if (FORBIDDEN_KEYS.has(k)) continue;
     if (v && typeof v === "object" && !Array.isArray(v) && typeof target[k] === "object" && target[k] !== null && !Array.isArray(target[k])) {
       deepMerge(target[k], v);
     } else {
@@ -193,6 +198,7 @@ export const userConfigPath = () => path.join(os.homedir(), ".rtools", "config.t
 // deletes the key, objects merge recursively, everything else replaces.
 function mergePatch(target, patch) {
   for (const [k, v] of Object.entries(patch)) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
     if (v === undefined) {
       delete target[k];
     } else if (v && typeof v === "object" && !Array.isArray(v) && target[k] && typeof target[k] === "object" && !Array.isArray(target[k])) {

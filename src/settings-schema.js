@@ -37,19 +37,30 @@ export function getSetting(cfg, id) {
   return dottedGet(cfg, id);
 }
 
+// Keys that must never be set through a user-controlled dotted id or patch:
+// assigning them pollutes Object.prototype.
+const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 // Nested patch for one setting: "tools.web_search" -> { tools: { web_search: v } }.
 export function setSettingPatch(id, value) {
   const keys = id.split(".");
   const patch = {};
   let node = patch;
-  for (let i = 0; i < keys.length - 1; i++) node = node[keys[i]] ??= {};
-  node[keys[keys.length - 1]] = value;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const k = keys[i];
+    if (FORBIDDEN_KEYS.has(k)) return {};
+    node = node[k] ??= {};
+  }
+  const last = keys[keys.length - 1];
+  if (FORBIDDEN_KEYS.has(last)) return patch;
+  node[last] = value;
   return patch;
 }
 
 // Mutate a live config object with a nested patch.
 export function applyPatch(target, patch) {
   for (const [k, v] of Object.entries(patch)) {
+    if (FORBIDDEN_KEYS.has(k)) continue;
     if (v && typeof v === "object" && !Array.isArray(v)) applyPatch(target[k] ??= {}, v);
     else target[k] = v;
   }
