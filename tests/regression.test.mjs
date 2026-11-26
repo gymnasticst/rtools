@@ -242,6 +242,32 @@ try {
   ok("apply_patch keeps blank lines in add bodies and update chunk context");
 } catch (e) { fail("apply_patch blank lines", e); }
 
+// --- 9. writing to a dead LSP server's stdin does not crash the process ---
+try {
+  const { spawn } = await import("node:child_process");
+  const { lspTool, shutdownLspServers, servers } = await import("../src/lsp.js");
+  const cwd = mkdtempSync(path.join(home, "lsp-"));
+  const f = path.join(cwd, "a.ts");
+  writeFileSync(f, "const x = 1;\n", "utf8");
+  // A server that exits immediately: its stdin pipe loses its read end, so a
+  // write emits an async EPIPE 'error' on the stream.
+  const dead = spawn("sh", ["-c", "exit 0"], { stdio: ["pipe", "pipe", "pipe"] });
+  dead.stdout.on("error", () => {});
+  dead.stderr.on("error", () => {});
+  const epipeSeen = new Promise((res) => dead.stdin.on("error", () => res(true)));
+  servers.set("ts", { child: dead, buf: "", pending: new Map(), initialized: true });
+  const tool = lspTool({ cwd });
+  const out = await tool.handler({ operation: "hover", file: f, line: 0, character: 0 });
+  let timer;
+  const sawEpipe = await Promise.race([epipeSeen, new Promise((r) => { timer = setTimeout(() => r(false), 1000); })]);
+  clearTimeout(timer);
+  assert.ok(sawEpipe, "the dead server's stdin must actually emit EPIPE in this scenario");
+  assert.strictEqual(typeof out, "string", "handler must return a string, not crash the process");
+  assert.match(out, /^Error:/, `expected an Error message from the tool, got: ${out}`);
+  shutdownLspServers();
+  ok("lsp write to dead server stdin returns Error instead of crashing (EPIPE handled)");
+} catch (e) { fail("lsp dead stdin", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 
 if (failures) {

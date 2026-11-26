@@ -13,7 +13,7 @@ const SERVERS = {
   rs: { cmd: ["rust-analyzer"], exts: [".rs"] },
 };
 
-const servers = new Map(); // lang -> child process
+export const servers = new Map(); // lang -> child process
 
 function langFor(file) {
   const ext = path.extname(file);
@@ -59,8 +59,23 @@ function rpc(lang, cwd, method, params, { notification = false } = {}) {
     }
     const id = idSeq++;
     const msg = { jsonrpc: "2.0", id, method, params };
+    if (!s.child.stdin.listenerCount("error")) {
+      // A server that has exited makes stdin writes fail with EPIPE as an
+      // async 'error' event; handle it here so it does not crash the process,
+      // and surface the failure through the pending calls instead.
+      s.child.stdin.on("error", () => {
+        servers.delete(lang);
+        for (const p of s.pending.values()) p.reject(new Error("LSP server stdin closed (server exited)"));
+        s.pending.clear();
+      });
+    }
     s.pending.set(id, { resolve, reject });
-    s.child.stdin.write(`Content-Length: ${Buffer.byteLength(JSON.stringify(msg))}\r\n\r\n${JSON.stringify(msg)}`);
+    try {
+      s.child.stdin.write(`Content-Length: ${Buffer.byteLength(JSON.stringify(msg))}\r\n\r\n${JSON.stringify(msg)}`);
+    } catch (e) {
+      s.pending.delete(id);
+      return reject(new Error(`LSP server for ${lang} is not writable (${e.message})`));
+    }
     if (notification) {
       // notifications get no response; resolve immediately after write
       s.pending.delete(id);
