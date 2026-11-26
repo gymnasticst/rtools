@@ -31,6 +31,11 @@ function parsePatch(patchText) {
     } else if (line.startsWith("***")) {
       throw new Error(`unsupported patch directive: ${line}`);
     } else if (line.trim() === "") {
+      // Blank lines are data inside an Add File body (a blank line of the new
+      // file) and inside an update chunk (a blank context line); skip them
+      // only between directives.
+      if (cur?.type === "add") cur.lines.push("");
+      else if (cur?.chunk) cur.chunk.lines.push(" ");
       continue;
     } else if (cur) {
       if (cur.type === "add") cur.lines.push(line);

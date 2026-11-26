@@ -199,6 +199,49 @@ try {
   ok("expired MCP token is refreshed via refresh_token grant without the browser flow");
 } catch (e) { fail("mcp token refresh", e); }
 
+// --- 8. blank lines inside add bodies and update chunks are data ---------
+try {
+  const { applyPatchTool } = await import("../src/apply-patch.js");
+  const cwd = mkdtempSync(path.join(home, "blank-"));
+  const tool = applyPatchTool({ cwd });
+
+  // Add File with blank lines: they must survive into the written file
+  const addPatch =
+    "*** Begin Patch\n" +
+    "*** Add File: blank.txt\n" +
+    "+first\n" +
+    "\n" +
+    "+third\n" +
+    "*** End Patch\n";
+  await tool.handler({ patch: addPatch });
+  assert.strictEqual(
+    readFileSync(path.join(cwd, "blank.txt"), "utf8"),
+    "first\n\nthird",
+    "blank lines in an Add File body must be written verbatim"
+  );
+
+  // Update chunk whose context spans a blank line: it must still match
+  const upd = path.join(cwd, "upd.txt");
+  writeFileSync(upd, "before\n\nafter\n", "utf8");
+  const updPatch =
+    "*** Begin Patch\n" +
+    "*** Update File: upd.txt\n" +
+    "@@\n" +
+    " before\n" +
+    " \n" +
+    "-after\n" +
+    "+AFTER\n" +
+    "*** End Patch\n";
+  await tool.handler({ patch: updPatch });
+  assert.strictEqual(
+    readFileSync(upd, "utf8"),
+    "before\n\nAFTER\n",
+    "a chunk context containing a blank line must match and apply"
+  );
+
+  ok("apply_patch keeps blank lines in add bodies and update chunk context");
+} catch (e) { fail("apply_patch blank lines", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 
 if (failures) {
