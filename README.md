@@ -3,7 +3,7 @@
 RTools — CLI-агент для программирования (команда `rt`; `rtools` работает как алиас): интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
 [![CI](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml/badge.svg)](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.1.25-blue)
+![Version](https://img.shields.io/badge/version-0.1.26-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-blue)
 
 ## Содержание
@@ -237,6 +237,8 @@ CI (`.github/workflows/ci.yml`) гоняет `npm test` на каждый push �
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## История версий
+
+- `v0.1.26` — Полировка TUI и обновлятора: реальная версия в шапке (v0.1.x вместо 0.1.0), анимированное появление баннера, ровная рамка под длинные модели, всплывающие окна (box), тихий --update с человеческим ченджлогом и подсказка о новой версии при старте (2026-11-26)
 
 - `v0.1.25` — Чиним краши после отправки сообщения в TUI: потерянное объявление currentAbort (repl.js) и SPINNER_FRAMES (tui.js), а также вызов autoCompact с аргументами, которых он не принимает — из-за этого 'error: currentAbort is not defined' и падение спиннера после первого хода (2026-11-26)
 

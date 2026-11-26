@@ -1,6 +1,6 @@
 {
   "name": "rtools",
-  "version": "0.1.27",
+  "version": "0.1.26",
   "description": "RTools — CLI coding agent with pluggable model providers, MCP plugins and skills",
   "type": "module",
   "bin": {
