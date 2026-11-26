@@ -188,7 +188,7 @@ export async function startREPL(ctx) {
     else console.log("setup skipped — /setup runs it any time");
     // reload config so the choices take effect in this session
     const fresh = await import("./config.js");
-    Object.assign(cfg, fresh.loadConfig());
+    Object.assign(ctx.cfg, fresh.loadConfig());
   };
   if (isFirstRun() && !process.env.RTOOLS_NO_SETUP) {
     await setupWizard("0.1.0");
@@ -199,7 +199,7 @@ export async function startREPL(ctx) {
   // auto_install: pre-install every missing MCP preset package in the
   // background so a later mcp_connect connects instantly. Fire-and-forget:
   // startup must not block on npm.
-  if (cfg.auto_install) {
+  if (ctx.cfg.auto_install) {
     import("./mcp-presets.js")
       .then(({ ensureAllPresetsInstalled }) => ensureAllPresetsInstalled())
       .then((summary) => console.log(`auto-install of MCP dependencies:\n${summary}`))
