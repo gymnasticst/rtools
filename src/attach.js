@@ -4,6 +4,7 @@
 // text files are inlined into the prompt, images are attached as base64 image
 // parts the providers already send to vision models (providers.js).
 import { existsSync, readFileSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;
@@ -41,7 +42,8 @@ export function parseDroppedFiles(input, cwd) {
       : m[3].replace(/\\(.)/g, "$1");
     let abs = null;
     try {
-      abs = candidate.startsWith("~") ? path.join(cwd, candidate.slice(1)) : path.resolve(cwd, candidate);
+      // "~" and "~/..." mean the user's home directory, not <cwd>/...
+      abs = candidate.startsWith("~") ? path.join(os.homedir(), candidate.slice(1)) : path.resolve(cwd, candidate);
     } catch {
       // unresolvable — keep the text as is
     }

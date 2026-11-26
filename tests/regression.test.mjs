@@ -537,7 +537,98 @@ try {
   ok("remoteExec rejects leading-dash ssh targets before spawning ssh");
 } catch (e) { fail("ssh target option injection", e); }
 
+// --- 19. "~" in dropped-file input resolves against home, not cwd --------------
+try {
+  const { parseDroppedFiles } = await import("../src/attach.js");
+
+  const cwd = mkdtempSync(path.join(tmpdir(), "attach-cwd-"));
+  const home = mkdtempSync(path.join(tmpdir(), "attach-home-"));
+  writeFileSync(path.join(home, "notes.md"), "home notes", "utf8");
+  // A same-named file in cwd must NOT be the one attached for a "~/notes.md" input.
+  writeFileSync(path.join(cwd, "notes.md"), "cwd notes", "utf8");
+
+  const origHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const { prompt, attachments } = parseDroppedFiles("look at ~/notes.md", cwd);
+    const attachedPath = attachments[0]?.path ?? "";
+    assert.strictEqual(attachments.length, 1, `exactly one attachment expected, got ${attachments.length}`);
+    assert.strictEqual(attachedPath, path.join(home, "notes.md"), `~/notes.md must resolve to the home file, got: ${attachedPath}`);
+    assert.ok(prompt.includes("home notes"), "the home file's content must be inlined, not the cwd file");
+    assert.ok(!prompt.includes("cwd notes"), "the same-named cwd file must not be attached instead");
+    assert.ok(prompt.includes("look at"), "text before the token stays in the prompt");
+  } finally {
+    if (origHome === undefined) delete process.env.HOME; else process.env.HOME = origHome;
+  }
+
+  try { rmSync(cwd, { recursive: true, force: true }); } catch {}
+  try { rmSync(home, { recursive: true, force: true }); } catch {}
+  ok("tilde paths in dropped-file input resolve against the home directory");
+} catch (e) { fail("tilde path resolution", e); }
+
+// --- 20. project config file resolves against the loadConfig cwd, not process.cwd() ---
+try {
+  const { loadConfig } = await import("../src/config.js");
+
+  const workdir = mkdtempSync(path.join(tmpdir(), "cfg-workdir-"));
+  const fakeHome = mkdtempSync(path.join(tmpdir(), "cfg-home-"));
+  mkdirSync(path.join(fakeHome, ".rtools"), { recursive: true });
+  mkdirSync(path.join(workdir, ".rtools"), { recursive: true });
+  // user level: trust on, so a project config is eligible for merging
+  writeFileSync(path.join(fakeHome, ".rtools", "config.toml"), 'trust_policy = "on"\n', "utf8");
+  // project level: lives in the dir the agent will operate in (-w/--workdir)
+  writeFileSync(path.join(workdir, ".rtools", "config.toml"), 'model = "from-workdir"\n', "utf8");
+
+  const origHome = process.env.HOME;
+  process.env.HOME = fakeHome;
+  try {
+    // the process stays wherever it is; the agent's working dir comes via cwd
+    const cfg = loadConfig({ cwd: workdir });
+    assert.strictEqual(
+      cfg.model,
+      "from-workdir",
+      `the project config from the cwd workdir must be merged, got model: ${cfg.model}`
+    );
+
+    // with no cwd passed, no project file matches process.cwd() here, so the
+    // default model must survive untouched
+    const cfgNoProject = loadConfig({});
+    assert.strictEqual(
+      cfgNoProject.model,
+      "nemotron-3.5-lightning-free",
+      `a project config must not be loaded from process.cwd() itself, got model: ${cfgNoProject.model}`
+    );
+  } finally {
+    if (origHome === undefined) delete process.env.HOME; else process.env.HOME = origHome;
+  }
+
+  try { rmSync(workdir, { recursive: true, force: true }); } catch {}
+  try { rmSync(fakeHome, { recursive: true, force: true }); } catch {}
+  ok("project config file resolves against the loadConfig cwd, not process.cwd()");
+} catch (e) { fail("CONFIG_FILES cwd resolution", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
+
+// --- 21. unknown dash-flags are rejected, not treated as prompt text or a command name ---
+try {
+  const { parseArgs } = await import("../bin/rtools.js");
+
+  // a mistyped flag must fail loudly instead of shifting the rest of the args
+  assert.throws(() => parseArgs(["--sanbox", "exec", "hi"]), /unknown option: --sanbox/);
+  assert.throws(() => parseArgs(["--appoval", "never"]), /unknown option: --appoval/);
+  assert.throws(() => parseArgs(["-x"]), /unknown option: -x/);
+
+  // the plugin-marketplace flag --ref flows through parseArgs to pluginCommand
+  const ref = parseArgs(["plugin", "marketplace", "add", "owner/repo", "--ref", "main"]);
+  assert.deepStrictEqual(ref._, ["plugin", "marketplace", "add", "owner/repo", "--ref", "main"]);
+
+  // recognised top-level flags keep parsing as before
+  const good = parseArgs(["exec", "-m", "gpt", "prompt"]);
+  assert.strictEqual(good.model, "gpt");
+  assert.deepStrictEqual(good._, ["exec", "prompt"]);
+
+  ok("unknown dash-flags are rejected instead of becoming prompt text or a command name");
+} catch (e) { fail("unknown dash-flag rejection", e); }
 
 if (failures) {
   console.error(`REGRESSION: ${failures} FAILED`);

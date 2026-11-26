@@ -29,9 +29,9 @@ export const BUILTIN_PROVIDERS = {
   },
 };
 
-const CONFIG_FILES = () => [
+const CONFIG_FILES = (cwd = process.cwd()) => [
   path.join(os.homedir(), ".rtools", "config.toml"),
-  path.resolve(".rtools/config.toml"),
+  path.resolve(cwd, ".rtools/config.toml"),
 ];
 
 export const DEFAULT_SKILLS_DIRS = () => [
@@ -128,10 +128,11 @@ export function loadConfig({ configPath, cwd, model, provider, approval, sandbox
   } else {
     // trust is decided from the user-level config only; a project cannot
     // mark itself trusted, so its config loads solely for trusted projects
-    const [userFile, projectFile] = CONFIG_FILES();
+    const [userFile, projectFile] = CONFIG_FILES(cwd || process.cwd());
     mergeFile(userFile);
     // the working dir the agent will operate in (-w/--workdir), not where the
-    // CLI process happens to run: trust must be checked for the same dir
+    // CLI process happens to run: trust must be checked for the same dir,
+    // and the project file must come from that same dir too
     if (projectTrusted(cfg, cwd || process.cwd())) mergeFile(projectFile);
   }
   // profile: [profile.<name>] overrides top-level keys
