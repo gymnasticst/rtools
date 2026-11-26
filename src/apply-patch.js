@@ -59,10 +59,11 @@ function applyUpdate(content, chunks) {
   // reached, not always the first one in the file.
   let searchFrom = 0;
   for (const chunk of chunks) {
-    const ctxLines = chunk.lines.filter((l) => l.startsWith(" ") || l.startsWith("-"));
-    const find = ctxLines.length
-      ? ctxLines.map((l) => l.slice(1))
-      : [];
+    // A context line must start with ' ' (or '-' for removal). Tolerate a
+    // bare line without the leading space: treat it as context verbatim,
+    // never as content whose first character is dropped.
+    const ctxLines = chunk.lines.filter((l) => !l.startsWith("+"));
+    const find = ctxLines.map((l) => (l.startsWith(" ") || l.startsWith("-") ? l.slice(1) : l));
     if (!find.length) {
       // no removal context: append at end
       contentLines.push(...chunk.lines.filter((l) => l.startsWith("+")).map((l) => l.slice(1)));
@@ -84,7 +85,7 @@ function applyUpdate(content, chunks) {
     for (const l of chunk.lines) {
       if (l.startsWith("-")) continue;
       if (l.startsWith("+")) replacements.push(l.slice(1));
-      else replacements.push(l.slice(1));
+      else replacements.push(l.startsWith(" ") ? l.slice(1) : l);
     }
     contentLines.splice(at, find.length, ...replacements);
     searchFrom = at + replacements.length;

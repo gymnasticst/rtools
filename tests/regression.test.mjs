@@ -317,6 +317,33 @@ try {
   ok("pluginInstall resolves marketplace by its registered name, not catalog.name");
 } catch (e) { fail("marketplace lookup by entry name", e); }
 
+// --- 12. bare context lines (missing leading space) apply verbatim --------
+try {
+  const { applyPatchTool } = await import("../src/apply-patch.js");
+  const cwd = mkdtempSync(path.join(home, "barectx-"));
+  const f = path.join(cwd, "ctx.txt");
+  writeFileSync(f, "alpha\nbeta\ngamma\n", "utf8");
+  // "beta" lost its leading space (model-emitted patch): it must still act
+  // as context and be written back verbatim, not with its first char cut.
+  const patch =
+    "*** Begin Patch\n" +
+    "*** Update File: ctx.txt\n" +
+    "@@\n" +
+    "alpha\n" +
+    "beta\n" +
+    "-gamma\n" +
+    "+GAMMA\n" +
+    "*** End Patch\n";
+  const tool = applyPatchTool({ cwd });
+  await tool.handler({ patch });
+  assert.strictEqual(
+    readFileSync(f, "utf8"),
+    "alpha\nbeta\nGAMMA\n",
+    "a bare context line must be preserved verbatim, not sliced"
+  );
+  ok("apply_patch treats bare context lines as context verbatim");
+} catch (e) { fail("apply_patch bare context lines", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 
 if (failures) {
