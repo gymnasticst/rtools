@@ -404,6 +404,61 @@ try {
   ok("apply_patch chains two Update File hunks for the same file");
 } catch (e) { fail("apply_patch two update hunks same file", e); }
 
+// --- 15. LSP framing: a response body split across two chunks is delivered --
+try {
+  const { spawn } = await import("node:child_process");
+  const { lspTool, shutdownLspServers, SERVERS } = await import("../src/lsp.js");
+  const cwd = mkdtempSync(path.join(home, "lspsplit-"));
+  const f = path.join(cwd, "a.ts");
+  writeFileSync(f, "const x = 1;\n", "utf8");
+  // Echo server: answers every framed request with a framed reply whose body
+  // is split 10 bytes in, the second chunk delayed. The old framing code
+  // sliced and consumed the buffer immediately without waiting for the full
+  // body, so a split body failed JSON.parse silently and the pending call
+  // hung until the 15s timeout.
+  const script = `
+    let d = "";
+    let q = Promise.resolve();
+    process.stdin.on("data", (c) => {
+      d += c;
+      let h;
+      while ((h = d.indexOf("\\r\\n\\r\\n")) !== -1) {
+        const len = Number((d.match(/Content-Length: (\\d+)/) || [])[1]);
+        if (!len || d.length < h + 4 + len) break;
+        const id = JSON.parse(d.slice(h + 4, h + 4 + len)).id;
+        d = d.slice(h + 4 + len);
+        const body = JSON.stringify({ jsonrpc: "2.0", id, result: { contents: { value: "SPLIT_OK " + "x".repeat(500) } } });
+        const frame = "Content-Length: " + Buffer.byteLength(body) + "\\r\\n\\r\\n" + body;
+        const cut = frame.indexOf("\\r\\n\\r\\n") + 4 + 10;
+        // Serialize replies: each frame's first chunk, then its remainder
+        // 150ms later, before the next frame starts — like a real server
+        // whose response is split mid-body by the pipe.
+        q = q.then(() => new Promise((done) => {
+          process.stdout.write(frame.slice(0, cut));
+          setTimeout(() => process.stdout.write(frame.slice(cut), done), 150);
+        }));
+      }
+    });
+  `;
+  const origCmd = SERVERS.ts.cmd;
+  SERVERS.ts.cmd = ["node", "-e", script];
+  const tool = lspTool({ cwd });
+  let timer;
+  const out = await Promise.race([
+    tool.handler({ operation: "hover", file: f, line: 0, character: 0 }),
+    new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("hover hung: reply with a body split across two chunks was never delivered")), 6000); }),
+  ]);
+  clearTimeout(timer);
+  SERVERS.ts.cmd = origCmd;
+  assert.match(
+    String(out),
+    /^SPLIT_OK /,
+    `a response body split across two chunks must be parsed and delivered, got: ${String(out).slice(0, 120)}`
+  );
+  shutdownLspServers();
+  ok("lsp framing delivers a response body split across two chunks");
+} catch (e) { fail("lsp split body framing", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 
 if (failures) {

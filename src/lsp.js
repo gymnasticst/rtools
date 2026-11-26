@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-const SERVERS = {
+export const SERVERS = {
   ts: { cmd: ["typescript-language-server", "--stdio"], exts: [".ts", ".tsx", ".js", ".jsx", ".mjs"] },
   py: { cmd: ["pyright-langserver", "--stdio"], exts: [".py"] },
   go: { cmd: ["gopls"], exts: [".go"] },
@@ -39,6 +39,7 @@ function rpc(lang, cwd, method, params, { notification = false } = {}) {
             const head = s.buf.slice(0, idx);
             const len = Number((head.match(/Content-Length: (\d+)/) || [])[1]);
             if (!len) { s.buf = s.buf.slice(idx + 4); continue; }
+            if (s.buf.length < idx + 4 + len) break; // wait for the rest of the body
             const body = s.buf.slice(idx + 4, idx + 4 + len);
             s.buf = s.buf.slice(idx + 4 + len);
             try {
