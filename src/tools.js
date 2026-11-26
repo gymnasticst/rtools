@@ -522,9 +522,14 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
         const type = res.headers.get("content-type") || "";
         let body = raw;
         if (type.includes("text/html")) {
-          body = raw
-            .replace(/<script[\s\S]*?<\/script>/gi, "")
-            .replace(/<style[\s\S]*?<\/style>/gi, "")
+          let previous;
+          do {
+            previous = body;
+            body = body
+              .replace(/<script[\s\S]*?<\/script>/gi, "")
+              .replace(/<style[\s\S]*?<\/style>/gi, "");
+          } while (body !== previous);
+          body = body
             .replace(/<[^>]+>/g, " ")
             .replace(/&nbsp;/g, " ")
             .replace(/&amp;/g, "&")
