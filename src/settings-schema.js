@@ -41,6 +41,13 @@ export function getSetting(cfg, id) {
 // assigning them pollutes Object.prototype.
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+// defineProperty creates an own property and never touches [[Prototype]],
+// so even a forbidden key cannot pollute Object.prototype.
+function safeSet(obj, k, v) {
+  Object.defineProperty(obj, k, { value: v, writable: true, enumerable: true, configurable: true });
+  return v;
+}
+
 // Nested patch for one setting: "tools.web_search" -> { tools: { web_search: v } }.
 export function setSettingPatch(id, value) {
   const keys = id.split(".");
@@ -49,11 +56,12 @@ export function setSettingPatch(id, value) {
   for (let i = 0; i < keys.length - 1; i++) {
     const k = keys[i];
     if (FORBIDDEN_KEYS.has(k)) return {};
-    node = node[k] ??= {};
+    if (!Object.hasOwn(node, k)) safeSet(node, k, {});
+    node = node[k];
   }
   const last = keys[keys.length - 1];
   if (FORBIDDEN_KEYS.has(last)) return patch;
-  node[last] = value;
+  safeSet(node, last, value);
   return patch;
 }
 
@@ -61,8 +69,10 @@ export function setSettingPatch(id, value) {
 export function applyPatch(target, patch) {
   for (const [k, v] of Object.entries(patch)) {
     if (FORBIDDEN_KEYS.has(k)) continue;
-    if (v && typeof v === "object" && !Array.isArray(v)) applyPatch(target[k] ??= {}, v);
-    else target[k] = v;
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      if (!Object.hasOwn(target, k) || typeof target[k] !== "object" || target[k] === null) safeSet(target, k, {});
+      applyPatch(target[k], v);
+    } else safeSet(target, k, v);
   }
   return target;
 }

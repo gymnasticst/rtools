@@ -45,13 +45,19 @@ export const RTOOLS_HOME = () => path.join(os.homedir(), ".rtools");
 // pollutes Object.prototype.
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+// defineProperty creates an own property and never touches [[Prototype]].
+function safeSet(obj, k, v) {
+  Object.defineProperty(obj, k, { value: v, writable: true, enumerable: true, configurable: true });
+  return v;
+}
+
 function deepMerge(target, src) {
   for (const [k, v] of Object.entries(src)) {
     if (FORBIDDEN_KEYS.has(k)) continue;
     if (v && typeof v === "object" && !Array.isArray(v) && typeof target[k] === "object" && target[k] !== null && !Array.isArray(target[k])) {
       deepMerge(target[k], v);
     } else {
-      target[k] = v;
+      safeSet(target, k, v);
     }
   }
   return target;
