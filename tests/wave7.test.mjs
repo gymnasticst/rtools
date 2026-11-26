@@ -122,6 +122,59 @@ test("tools: mcp_connect and install_packages are exposed with askAlways", () =>
   assert.equal(inst.name, "install_packages");
 });
 
+test("auto_install: tools skip confirmation when enabled, keep it otherwise", () => {
+  const conn = mcpConnectTool({ cfg: { auto_install: true }, tools: [], mcpConnections: [] });
+  const inst = installPackagesTool({ auto_install: true });
+  assert.equal(conn.autoAllowed, true);
+  assert.equal(conn.askAlways, false);
+  assert.equal(inst.autoAllowed, true);
+  assert.equal(inst.askAlways, false);
+
+  const connOff = mcpConnectTool({ cfg: { auto_install: false }, tools: [], mcpConnections: [] });
+  const instOff = installPackagesTool({ auto_install: false });
+  assert.equal(connOff.autoAllowed, false);
+  assert.equal(connOff.askAlways, true);
+  assert.equal(instOff.autoAllowed, false);
+  assert.equal(instOff.askAlways, true);
+});
+
+test("auto_install: needsApproval lets autoAllowed installs through, plan mode still asks", () => {
+  const tool = { name: "install_packages", kind: "shell", askAlways: true, autoAllowed: true };
+  assert.equal(needsApproval(tool, "never"), false);
+  assert.equal(needsApproval(tool, "untrusted"), false);
+  assert.equal(needsApproval(tool, "always"), false);
+  assert.equal(needsApproval(tool, "never", true), true);
+  const toolOff = { name: "install_packages", kind: "shell", askAlways: true };
+  assert.equal(needsApproval(toolOff, "never"), true);
+});
+
+test("auto_install: system prompt reflects the mode", () => {
+  const on = systemPrompt({ cfg: { auto_install: true }, cwd: "/tmp", skills: [] });
+  assert.match(on, /auto_install is on/);
+  assert.doesNotMatch(on, /never install packages silently/);
+  const off = systemPrompt({ cfg: {}, cwd: "/tmp", skills: [] });
+  assert.match(off, /never install packages silently/);
+});
+
+test("auto_install: ensureAllPresetsInstalled skips what is present and reports", async () => {
+  const prefix = mkdtempSync(path.join(tmpdir(), "wave7-auto-"));
+  try {
+    for (const preset of Object.values(MCP_PRESETS)) {
+      const bin = presetBinPath(preset, prefix);
+      mkdirSync(path.dirname(bin), { recursive: true });
+      writeFileSync(bin, "#!/bin/sh\n", { mode: 0o755 });
+    }
+    const { ensureAllPresetsInstalled } = await import(path.join(root, "src", "mcp-presets.js"));
+    const summary = await ensureAllPresetsInstalled(prefix);
+    const lines = summary.split("\n");
+    assert.equal(lines.length, Object.keys(MCP_PRESETS).length);
+    for (const line of lines) assert.match(line, /already installed/);
+  } finally {
+    rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
+
 for (const run of asyncTests) await run();
 
 console.log(`\nWAVE7: ${failures ? "FAILED" : "ALL PASSED"}`);

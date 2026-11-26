@@ -57,13 +57,19 @@ export function systemPrompt({ cfg, cwd, skills = [], mcpConnections = [] }) {
       "After the clarifying answers, check `survey_project`: if the project has no AGENTS.md, you MUST survey the project and write a real AGENTS.md yourself (with write_file) before doing the task. Fill it only with facts you verified: real build/test commands from the actual manifests, real conventions you saw in the code, key files. If AGENTS.md exists but is clearly wrong about build/test commands, fix those sections."
     );
   }
+  const autoInstall = cfg.auto_install === true;
   lines.push(
     "",
     "## Required MCP integrations (use them when needed)",
-    "Three MCP servers are available as built-in presets: context7, playwright, context-mode. If a task needs one of them and it is not connected yet, call `mcp_connect` first (with an empty name it lists them): it installs the missing npm package into ~/.rtools/mcp and connects the server, asking the user to confirm the installation. Using the right integration is mandatory when relevant: never guess library or API details from memory while context7 is available; verify UI and web work through a real browser via playwright; route shell commands and page fetches with large output through context-mode to keep the context small.",
+    autoInstall
+      ? "Three MCP servers are available as built-in presets: context7, playwright, context-mode. If a task needs one of them and it is not connected yet, call `mcp_connect` first (with an empty name it lists them): it installs the missing npm package into ~/.rtools/mcp and connects the server. auto_install is on: dependency installations run automatically, without asking the user for confirmation."
+      : "Three MCP servers are available as built-in presets: context7, playwright, context-mode. If a task needs one of them and it is not connected yet, call `mcp_connect` first (with an empty name it lists them): it installs the missing npm package into ~/.rtools/mcp and connects the server, asking the user to confirm the installation.",
+    "Using the right integration is mandatory when relevant: never guess library or API details from memory while context7 is available; verify UI and web work through a real browser via playwright; route shell commands and page fetches with large output through context-mode to keep the context small.",
     "",
     "## Installing missing tools",
-    "If a task needs a CLI, library or package that is not installed, call `install_packages` (npm, pip, cargo, apt). Every installation asks the user for confirmation — never install packages silently through the shell tool."
+    autoInstall
+      ? "If a task needs a CLI, library or package that is not installed, call `install_packages` (npm, pip, cargo, apt). auto_install is on: installations run automatically without asking the user, so install whatever the task needs directly."
+      : "If a task needs a CLI, library or package that is not installed, call `install_packages` (npm, pip, cargo, apt). Every installation asks the user for confirmation — never install packages silently through the shell tool."
   );
   const agentsMd = loadAgentsMd(cwd);
   if (agentsMd) lines.push("", "# Project guidance (AGENTS.md)", agentsMd);
@@ -83,6 +89,9 @@ export function systemPrompt({ cfg, cwd, skills = [], mcpConnections = [] }) {
 }
 
 export function needsApproval(tool, policy, planMode = false) {
+  // auto_install: dependency installs (packages, MCP presets) run without
+  // confirmation — except in plan mode, which stays read-only
+  if (tool.autoAllowed && !planMode) return false;
   // installs and MCP connects always confirm, even with approval=never
   if (tool.askAlways) return true;
   if (policy === "never" && !planMode) return false;
@@ -118,7 +127,7 @@ export async function buildContext(opts) {
   if (cfg.tools?.view_image !== false) tools.push(viewImageTool({ cwd }));
   tools.push(jobTool({ cwd }));
   tools.push(mcpConnectTool({ cfg, tools, mcpConnections }));
-  tools.push(installPackagesTool());
+  tools.push(installPackagesTool(cfg));
   tools.push(delegateTool({ ctx: { cfg, provider, apiKey, cwd, skills, tools, mcpConnections } }));
   tools.push(teamTool({ ctx: { cfg, provider, apiKey, cwd, skills, tools, mcpConnections } }));
   for (const conn of mcpConnections) {

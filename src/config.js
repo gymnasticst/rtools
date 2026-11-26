@@ -58,6 +58,7 @@ export function defaults() {
     model: "gpt-5.1",
     model_provider: "openai",
     approval_policy: "untrusted", // untrusted | never | always
+    auto_install: true, // install missing dependencies (packages, MCP presets) without asking
     sandbox_mode: "workspace", // read-only | workspace | danger
     model_reasoning_effort: "medium", // low | medium | high (responses API)
     model_reasoning_summary: "auto", // auto | concise | detailed
@@ -93,6 +94,7 @@ export function defaults() {
 
 const VALIDATORS = {
   approval_policy: (v) => ["untrusted", "never", "always"].includes(v),
+  auto_install: (v) => typeof v === "boolean",
   sandbox_mode: (v) => ["read-only", "workspace", "danger"].includes(v),
   model_reasoning_effort: (v) => ["low", "medium", "high"].includes(v),
   model_reasoning_summary: (v) => ["auto", "concise", "detailed"].includes(v),

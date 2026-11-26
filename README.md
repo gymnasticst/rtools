@@ -68,6 +68,7 @@ rt exec "<промпт>"    one-shot запуск без интерфейса
 model = "gpt-5.1"
 model_provider = "openai"
 approval_policy = "untrusted"   # untrusted | never | always
+auto_install = true             # ставить недостающие зависимости без запроса
 
 [model_providers.myprovider]    # любой OpenAI-совместимый сервис
 name = "My Provider"
@@ -106,7 +107,7 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 
 ## MCP-серверы и плагины
 
-Встроенные MCP-пресеты — агент подключает их сам через инструмент `mcp_connect`, когда задача этого требует (подтверждение установки пакета запрашивается всегда):
+Встроенные MCP-пресеты — агент подключает их сам через инструмент `mcp_connect`, когда задача этого требует. При `auto_install = true` (по умолчанию) недостающие пакеты ставятся автоматически и все пресеты доустанавливаются в фоне при старте REPL; при `auto_install = false` каждая установка запрашивает подтверждение:
 
 - **context7** — документация библиотек и API вместо догадок по памяти;
 - **playwright** — проверка UI и веб-работы в реальном браузере;
@@ -117,7 +118,7 @@ rt plugin install <name>                 # например linear, slack, strip
 rt plugin marketplace add owner/repo     # свой маркетплейс скиллов и плагинов
 ```
 
-Недостающие CLI и пакеты агент ставит через инструмент `install_packages` (npm, pip, cargo, apt) — каждая установка запрашивает подтверждение, даже при `approval = "never"`.
+Недостающие CLI и пакеты агент ставит через инструмент `install_packages` (npm, pip, cargo, apt). При `auto_install = true` (по умолчанию) установки выполняются без запроса подтверждения — и пакеты, и MCP-пресеты; `auto_install = false` возвращает обязательное подтверждение каждой установки, даже при `approval = "never"`.
 
 ## Скиллы
 

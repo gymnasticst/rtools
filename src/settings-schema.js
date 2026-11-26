@@ -7,6 +7,7 @@ export const SETTING_DEFS = [
   { id: "model", label: "model", desc: "model id used for requests", kind: "string", live: true },
   { id: "model_provider", label: "provider", desc: "openai, anthropic or a custom provider id", kind: "enum", values: null, live: false, note: "restart to apply" },
   { id: "approval_policy", label: "approval policy", desc: "when tool calls ask for approval", kind: "enum", values: ["untrusted", "never", "always"], live: true },
+  { id: "auto_install", label: "auto install", desc: "install missing dependencies (packages, MCP presets) without asking", kind: "toggle", live: false, note: "new session" },
   { id: "sandbox_mode", label: "sandbox", desc: "filesystem/network sandbox for shell and writes", kind: "enum", values: ["read-only", "workspace", "danger"], live: true },
   { id: "model_reasoning_effort", label: "reasoning effort", desc: "low | medium | high", kind: "enum", values: ["low", "medium", "high"], live: true },
   { id: "model_reasoning_summary", label: "reasoning summary", desc: "auto | concise | detailed", kind: "enum", values: ["auto", "concise", "detailed"], live: false },

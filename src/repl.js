@@ -196,6 +196,16 @@ export async function startREPL(ctx) {
     console.log(statusBarLine());
   }
 
+  // auto_install: pre-install every missing MCP preset package in the
+  // background so a later mcp_connect connects instantly. Fire-and-forget:
+  // startup must not block on npm.
+  if (cfg.auto_install) {
+    import("./mcp-presets.js")
+      .then(({ ensureAllPresetsInstalled }) => ensureAllPresetsInstalled())
+      .then((summary) => console.log(`auto-install of MCP dependencies:\n${summary}`))
+      .catch(() => {});
+  }
+
   let planMode = false;
   let planModeToggled = false;
   const taskAllow = new Set(); // tools approved with "a" — until the turn ends

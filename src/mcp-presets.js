@@ -178,14 +178,21 @@ export async function installPackages({ manager, packages }) {
 }
 
 export function mcpConnectTool(ctx) {
+  const auto = ctx?.cfg?.auto_install === true;
   return {
     name: "mcp_connect",
     kind: "mcp",
-    askAlways: true, // installs must be confirmed, even with approval=never
+    // auto_install: installs run without confirmation; otherwise every
+    // connect/install is confirmed, even with approval=never
+    askAlways: !auto,
+    autoAllowed: auto,
     description:
       "Connect a built-in MCP server to this session by name (installs the missing npm package first). " +
       "Presets: " + Object.keys(MCP_PRESETS).join(", ") + ". " +
-      "Call it with an empty name to list them. Every connect/install asks the user for confirmation.",
+      "Call it with an empty name to list them. " +
+      (auto
+        ? "auto_install is on: the installation runs automatically without asking for confirmation."
+        : "Every connect/install asks the user for confirmation."),
     parameters: {
       type: "object",
       properties: { name: { type: "string", description: "Preset or configured server name, e.g. context7" } },
@@ -195,15 +202,48 @@ export function mcpConnectTool(ctx) {
   };
 }
 
-export function installPackagesTool() {
+// Auto-install every missing preset package up front (auto_install mode).
+// Idempotent: presets already present in the managed prefix are skipped.
+export async function ensureAllPresetsInstalled(prefix = mcpManagedPrefix()) {
+  const results = [];
+  for (const [name, preset] of Object.entries(MCP_PRESETS)) {
+    if (preset.minNode && !nodeVersionAtLeast(preset.minNode)) {
+      results.push(`${name}: skipped (needs Node >= ${preset.minNode})`);
+      continue;
+    }
+    if (presetInstalled(preset, prefix)) {
+      results.push(`${name}: already installed`);
+      continue;
+    }
+    try {
+      await npmInstallPrefix([preset.pkg], prefix);
+      results.push(
+        presetBinPath(preset, prefix) && existsSync(presetBinPath(preset, prefix))
+          ? `${name}: installed ${preset.pkg}`
+          : `${name}: install finished but binary missing at ${presetBinPath(preset, prefix)}`
+      );
+    } catch (e) {
+      results.push(`${name}: install failed (${e.message})`);
+    }
+  }
+  return results.join("\n");
+}
+
+export function installPackagesTool(cfg = {}) {
+  const auto = cfg?.auto_install === true;
   return {
     name: "install_packages",
     kind: "shell",
-    askAlways: true, // installs must be confirmed, even with approval=never
+    // auto_install: installs run without confirmation; otherwise every
+    // installation is confirmed, even with approval=never
+    askAlways: !auto,
+    autoAllowed: auto,
     description:
       "Install missing CLI tools, libraries or language packages needed for the task. " +
       "Supported managers: npm (global), pip/pip3, cargo, apt-get. " +
-      "Every installation asks the user for confirmation — never install packages silently through the shell tool.",
+      (auto
+        ? "auto_install is on: installations run automatically without asking the user."
+        : "Every installation asks the user for confirmation — never install packages silently through the shell tool."),
     parameters: {
       type: "object",
       properties: {
