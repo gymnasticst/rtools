@@ -54,7 +54,8 @@ MCP plugin example:
   command = "npx"
   args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]`;
 
-import { readFileSync as readFileSyncRaw } from "node:fs";
+import { readFileSync as readFileSyncRaw, realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 function readImageFile(file) {
   const types = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
@@ -63,7 +64,7 @@ function readImageFile(file) {
   return { path: file, media_type, data: readFileSyncRaw(file).toString("base64") };
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const opts = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -84,6 +85,9 @@ function parseArgs(argv) {
     else if (a === "--with-data") opts.withData = true;
     else if (a === "--help" || a === "-h") opts.help = true;
     else if (a === "--version") opts.version = true;
+    // a mistyped flag (--sanbox) must be a usage error, not prompt text or a
+    // command name; --ref is a plugin-marketplace flag consumed by pluginCommand
+    else if (a.startsWith("-") && a !== "--ref") throw new Error(`unknown option: ${a} (see rtools --help)`);
     else opts._.push(a);
   }
   return opts;
@@ -262,7 +266,10 @@ async function main() {
   await startREPL(ctx);
 }
 
-main().catch((e) => {
-  console.error(`error: ${e.message}`);
-  process.exit(1);
-});
+// run only when invoked as the CLI (not when imported for parseArgs tests)
+if (import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  main().catch((e) => {
+    console.error(`error: ${e.message}`);
+    process.exit(1);
+  });
+}
