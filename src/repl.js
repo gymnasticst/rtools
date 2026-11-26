@@ -36,7 +36,7 @@ import { createTracer } from "./trace.js";
 import { builtinTools } from "./tools.js";
 import { parseDroppedFiles } from "./attach.js";
 import { createUsage, addUsage, formatUsage } from "./usage.js";
-import { gitStatus, copyToClipboard, statusBar } from "./tui.js";
+import { gitStatus, copyToClipboard, statusBar, sidebar } from "./tui.js";
 import { banner, bannerAnimated, box, Spinner, toolNotice, turnStart, mdStreamer } from "./tui.js";
 import { isFirstRun, runSetupWizard } from "./welcome.js";
 
@@ -184,7 +184,19 @@ export async function startREPL(ctx) {
     }
   };
 
+  const sidebarBlock = () => {
+    const used = estimateTokens(messages);
+    return sidebar({
+      title: "New session",
+      tokens: used,
+      pct: Math.min(99, Math.round((used / contextWindow) * 100)),
+      cwd: ctx.cwd,
+      version: pkgVersion(),
+    });
+  };
+
   await bannerAnimated({ version: pkgVersion(), model, effort, provider: ctx.provider.id, cwd: ctx.cwd });
+  console.log(sidebarBlock());
   console.log(statusBarLine());
 
   // Non-blocking update hint: if a newer release exists, say it in one line.
@@ -360,6 +372,9 @@ export async function startREPL(ctx) {
       currentSpinner = null;
       currentAbort = null;
       if (sawText.md) sawText.md.end();
+      console.log("");
+      console.log(sidebarBlock());
+      console.log(statusBarLine());
     }
   };
 

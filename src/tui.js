@@ -6,6 +6,7 @@ const C = {
   dim: (s) => `\x1b[2m${s}\x1b[0m`,
   bold: (s) => `\x1b[1m${s}\x1b[0m`,
   cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  blue: (s) => `\x1b[34m${s}\x1b[0m`,
   gray: (s) => `\x1b[90m${s}\x1b[0m`,
   green: (s) => `\x1b[32m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
@@ -70,34 +71,54 @@ export function animateLines(lines, { delay = 24 } = {}) {
   });
 }
 
-// OpenCode-style home screen: ASCII logo left, session info right, and a
-// hint footer — no framed box (OpenCode uses no box around the header).
+// OpenCode-style home screen: big centered block logo, an input area with a
+// blue accent bar and a "Build · model" line, right-aligned hint footer,
+// tip line, cwd bottom-left and version bottom-right.
 function asciiLogo() {
   return [
-    " ██████╗ ██████╗ ",
-    " ██╔══██╗██╔══██╗",
-    " ██████╔╝██████╔╝",
-    " ██╔═══╝ ██╔═══╝ ",
-    " ██║     ██║     ",
-    " ╚═╝     ╚═╝     ",
+    "██████╗ ██████╗  ██████╗ ██████╗  ██████╗ ███████╗",
+    "██╔══██╗██╔══██╗██╔═══██╗██╔══██╗██╔═══██╗██╔════╝",
+    "██████╔╝██████╔╝██║   ██║██████╔╝██║   ██║███████╗",
+    "██╔══██╗██╔═══╝ ██║   ██║██╔══██╗██║   ██║╚════██║",
+    "██║  ██║██║     ╚██████╔╝██║  ██║╚██████╔╝███████║",
+    "╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝",
   ];
 }
 
+function plainLen(s) {
+  return s.replace(/\x1b\[[0-9;]*m/g, "").length;
+}
+
+function centerLine(s, width = termWidth()) {
+  const pad = Math.max(0, Math.floor((width - plainLen(s)) / 2));
+  return " ".repeat(pad) + s;
+}
+
+function rightLine(s, width = termWidth()) {
+  const pad = Math.max(0, width - plainLen(s) - 1);
+  return " ".repeat(pad) + s;
+}
+
 function bannerLines({ version, model, effort, provider, cwd }) {
-  const logo = asciiLogo();
-  const info = [
-    C.bold("RTools") + C.gray(` v${version}`),
-    "",
-    C.gray("model:    ") + model + C.gray(` (${effort})`),
-    C.gray("provider: ") + provider,
-    C.gray("dir:      ") + shorten(cwd),
-  ];
-  const rows = [];
-  const height = Math.max(logo.length, info.length);
-  for (let i = 0; i < height; i++) {
-    rows.push((logo[i] || "").padEnd(18) + (info[i] || ""));
-  }
-  return ["", ...rows.map((r) => "  " + r), ""];
+  const out = ["", ""];
+  for (const l of asciiLogo()) out.push(centerLine(C.gray(l)));
+  out.push("");
+  // Input area with a blue accent bar, like OpenCode's composer.
+  const bar = C.blue("▌");
+  out.push(bar + C.gray(` Ask anything… "What is the tech stack of this project?"`));
+  out.push(bar);
+  out.push(bar + " " + C.blue("Build") + C.gray(` · ${model} ${provider}`));
+  out.push("");
+  out.push(rightLine(C.gray("tab agents   ctrl+p commands")));
+  out.push("");
+  out.push("  " + C.yellow("●") + " " + C.yellow("Tip") + C.gray(" Run /setup to configure providers, /model to switch models"));
+  out.push("");
+  const left = shorten(cwd);
+  const right = `RTools ${version}`;
+  const pad = Math.max(1, termWidth() - plainLen(left) - plainLen(right) - 2);
+  out.push(C.gray("  " + left) + " ".repeat(pad) + C.gray(right));
+  out.push("");
+  return out;
 }
 
 function hintsLines() {
@@ -109,13 +130,29 @@ function hintsLines() {
 }
 
 export function banner(opts) {
-  console.log([...bannerLines(opts), ...hintsLines()].join("\n"));
+  console.log(bannerLines(opts).join("\n"));
 }
 
 // Fade-in animation of the frame on a TTY; hints print right after.
 export async function bannerAnimated(opts) {
   await animateLines(bannerLines(opts), { delay: 30 });
-  console.log(hintsLines().join("\n"));
+}
+
+// Right-side session info block (OpenCode sidebar): title, Context section
+// with tokens used, the working directory and the app version. Each line is
+// right-aligned against the terminal edge.
+export function sidebar({ title = "New session", tokens = 0, pct = 0, cwd = "", version = "" }) {
+  const lines = [
+    C.bold(title),
+    "",
+    C.bold("Context"),
+    C.gray(`${tokens.toLocaleString("en-US")} tokens`),
+    C.gray(`${pct}% used`),
+    "",
+    C.gray(shorten(cwd)),
+    C.gray(`RTools ${version}`),
+  ];
+  return lines.map((l) => rightLine(l)).join("\n");
 }
 
 export function statusBar({ model, effort, tokensLeft = 100, tokensUsed = 0, git = "", jobs = 0 }) {
