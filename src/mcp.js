@@ -57,7 +57,9 @@ export class McpConnection {
     // Fire-and-forget: the handshake result is not used, and a rejection (e.g.
     // the server dying) is handled by the exit listener / tools/list below.
     this.request("initialize", {
-      protocolVersion: "2024-11-05",
+      // Latest final MCP spec version; per the lifecycle spec the client sends
+      // the newest version it supports and the server replies with its own.
+      protocolVersion: "2025-06-18",
       capabilities: {},
       clientInfo: { name: "rtools", version: "0.1.0" },
     }).catch(() => {});

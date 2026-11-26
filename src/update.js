@@ -26,6 +26,26 @@ export function verifyShasums(shasums, filename, actualDigest) {
   if (expected !== actualDigest) throw new Error(`checksum mismatch for ${filename}: expected ${expected}, got ${actualDigest}`);
 }
 
+// Fetch a GitHub API URL with curl, capturing response headers. GitHub's
+// unauthenticated REST limit is 60/h per IP, so on 403/429 fail with a clear
+// message instead of a bare curl exit code.
+function fetchReleaseJson(url, headersOut) {
+  try {
+    return execFileSync("curl", ["-fsSL", "-D", headersOut, url], { encoding: "utf8" });
+  } catch (e) {
+    let headers = "";
+    try { headers = readFileSync(headersOut, "utf8"); } catch {}
+    const status = (/^HTTP\/[\d.]+\s+(\d+)/m.exec(headers) || [])[1];
+    if (status === "403" || status === "429") {
+      const retryAfter = (/^retry-after:\s*(\S+)/im.exec(headers) || [])[1];
+      throw new Error(
+        `GitHub API throttled (HTTP ${status}${retryAfter ? `, retry after ${retryAfter}s` : ""}) — try again later`,
+      );
+    }
+    throw e;
+  }
+}
+
 export function selfUpdate({ quiet = false } = {}) {
   const repo = process.env.RTOOLS_REPO || "gymnasticst/rtools";
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || repo.split("/").some((seg) => seg.startsWith("."))) throw new Error(`invalid RTOOLS_REPO (expected owner/repo): ${repo}`);
@@ -33,7 +53,8 @@ export function selfUpdate({ quiet = false } = {}) {
 
   const tmp = mkdtempSync(path.join(os.tmpdir(), "rtools-update-"));
   try {
-    const releaseJson = execFileSync("curl", ["-fsSL", `https://api.github.com/repos/${repo}/releases/latest`], { encoding: "utf8" });
+    const headersPath = path.join(tmp, "headers.txt");
+    const releaseJson = fetchReleaseJson(`https://api.github.com/repos/${repo}/releases/latest`, headersPath);
     const tag = (releaseJson.match(/"tag_name":\s*"([^"]+)"/) || [])[1];
     if (!tag) throw new Error("could not determine the latest release (offline?)");
 
@@ -98,7 +119,7 @@ function updateLibRoot() {
 export function latestTag() {
   try {
     const repo = process.env.RTOOLS_REPO || "gymnasticst/rtools";
-    const json = execFileSync("curl", ["-fsSL", "--max-time", "3", `https://api.github.com/repos/${repo}/releases/latest`], { encoding: "utf8" });
+    const json = execFileSync("curl", ["-fsSL", "--max-time", "10", `https://api.github.com/repos/${repo}/releases/latest`], { encoding: "utf8" });
     return (json.match(/"tag_name":\s*"([^"]+)"/) || [])[1] || null;
   } catch {
     return null;

@@ -33,18 +33,38 @@ function b64url(buf) {
   return buf.toString("base64url");
 }
 
+async function fetchJson(url) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) return null;
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+// RFC 9728 Protected Resource Metadata first (the 2025-06-18 MCP authorization
+// spec reclassifies servers as OAuth Resource Servers), then the auth server
+// metadata it points at; fall back to the pre-spec direct discovery.
 async function discoverMetadata(serverUrl) {
   const origin = new URL(serverUrl).origin;
+  const candidates = [
+    `${origin}/.well-known/oauth-protected-resource`,
+    new URL("/.well-known/oauth-protected-resource/mcp", serverUrl).toString(),
+  ];
+  for (const u of candidates) {
+    const prMeta = await fetchJson(u);
+    if (prMeta && Array.isArray(prMeta.authorization_servers) && prMeta.authorization_servers[0]) {
+      const asMeta = await fetchJson(`${prMeta.authorization_servers[0].replace(/\/$/, "")}/.well-known/oauth-authorization-server`);
+      if (asMeta) return asMeta;
+    }
+  }
   for (const u of [
     `${origin}/.well-known/oauth-authorization-server`,
     new URL("/.well-known/oauth-authorization-server/mcp", serverUrl).toString(),
   ]) {
-    try {
-      const res = await fetch(u, { signal: AbortSignal.timeout(10000) });
-      if (res.ok) return await res.json();
-    } catch {
-      // try next location
-    }
+    const asMeta = await fetchJson(u);
+    if (asMeta) return asMeta;
   }
   throw new Error(`OAuth metadata discovery failed for ${serverUrl}`);
 }
@@ -178,6 +198,8 @@ export async function authorizedFetch(serverUrl, body, token) {
     headers: {
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
+      // MUST on HTTP transport per the 2025-06-18 MCP spec.
+      "mcp-protocol-version": "2025-06-18",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
