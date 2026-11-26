@@ -36,7 +36,12 @@ export function monitorTool({ cwd }) {
       return await new Promise((resolve) => {
         const env = { ...process.env };
         const child = spawn("bash", ["-c", command], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
-        let out = "";
+        // Bounded tail of the output (messages keep at most the last 4000
+        // chars) and an incomplete-line buffer: each completed line is
+        // regex-tested exactly once, so memory and CPU stay O(tail).
+        const TAIL_CHARS = 8000;
+        let tail = "";
+        let lineBuf = "";
         let settled = false;
         const finish = (result) => {
           if (settled) return;
@@ -45,25 +50,28 @@ export function monitorTool({ cwd }) {
           try { child.kill("SIGKILL"); } catch {}
           resolve(result);
         };
+        const scanLine = (line) => {
+          if (!regex || !regex.test(line)) return false;
+          finish(`matched: ${line.trim()}\n\noutput so far:\n${tail.slice(-4000)}`);
+          return true;
+        };
         const onData = (d) => {
-          out += d;
-          if (!regex) return;
-          const line = out.split("\n").find((l) => regex.test(l));
-          if (line) finish(`matched: ${line.trim()}\n\noutput so far:\n${out.slice(-4000)}`);
+          tail = (tail + d).slice(-TAIL_CHARS);
+          if (!regex || settled) return;
+          const lines = (lineBuf + d).split("\n");
+          lineBuf = lines.pop();
+          for (const line of lines) if (scanLine(line)) return;
         };
         child.stdout.on("data", onData);
         child.stderr.on("data", onData);
         child.on("error", (e) => finish(`Error: spawn failed: ${e.message}`));
         child.on("close", (code) => {
-          if (regex) {
-            const line = out.split("\n").find((l) => regex.test(l));
-            if (line) return finish(`matched: ${line.trim()}\n\noutput:\n${out.slice(-4000)}`);
-          }
+          if (regex && !settled && scanLine(lineBuf)) return;
           finish(
-            `command exited with code ${code}\n\noutput:\n${out.slice(-4000) || "(no output)"}`
+            `command exited with code ${code}\n\noutput:\n${tail.slice(-4000) || "(no output)"}`
           );
         });
-        const timer = setTimeout(() => finish(`timeout after ${timeoutMs / 1000}s without a match\n\noutput so far:\n${out.slice(-2000) || "(none)"}`), timeoutMs);
+        const timer = setTimeout(() => finish(`timeout after ${timeoutMs / 1000}s without a match\n\noutput so far:\n${tail.slice(-2000) || "(none)"}`), timeoutMs);
       });
     },
   };

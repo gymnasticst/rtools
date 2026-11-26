@@ -52,6 +52,21 @@ ok(routeModel({ smart_routing: { enabled: true, simple: "mini-x" } }, "refactor 
   ok(r3.includes("timeout after 1s"), "monitor: timeout respected");
   const r4 = await tool.handler({ command: "true", pattern: "(" });
   ok(r4.startsWith("Error: invalid pattern"), "monitor: bad regex rejected");
+
+  // Regression: bounded memory + linear scan. The old code accumulated all
+  // output and re-split/rescanned it on every chunk (quadratic); a 2M-line
+  // run took >20s. Each line must now be scanned once and only a bounded
+  // tail kept, so this finishes in a few seconds.
+  {
+    const t0 = Date.now();
+    const big = await tool.handler({ command: "seq 1 2000000", pattern: "MATCH-NEVER", timeout_seconds: 60 });
+    const dt = Date.now() - t0;
+    ok(big.includes("exited with code 0") && big.length <= 5000, `monitor: 2M-line run returns bounded output (${big.length} chars)`);
+    ok(dt < 15000, `monitor: 2M-line run scanned once, not per chunk (${dt}ms)`);
+  }
+  // Lines split across chunks and a final line without newline must still match.
+  const r5 = await tool.handler({ command: "printf 'a\\nMAT' && sleep 0.2 && printf 'CH-late' && sleep 0.2 && printf '\\n'", pattern: "MATCH-late" });
+  ok(r5.startsWith("matched: MATCH-late"), "monitor: match spanning chunks and unterminated last line");
 }
 
 // --- cron
