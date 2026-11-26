@@ -60,6 +60,51 @@ async function askUserFallback(questions) {
   return out.join("\n");
 }
 
+// HTML-to-text as a single-pass character parser: no regexes to fool, no
+// replace chains to double-unescape. Tags are skipped (script/style with
+// their contents), entities are decoded only via a fixed lookup map, so
+// "&amp;lt;" yields the text "&lt;" and never "<".
+const ENTITIES = {
+  nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+  "#39": "'", "#160": " ",
+};
+
+export function htmlToText(raw) {
+  let out = "";
+  let i = 0;
+  const n = raw.length;
+  while (i < n) {
+    const ch = raw[i];
+    if (ch === "<") {
+      const close = raw.indexOf(">", i);
+      const tag = close === -1 ? raw.slice(i + 1) : raw.slice(i + 1, close);
+      i = close === -1 ? n : close + 1;
+      const name = (tag.match(/^[a-zA-Z]+/) || [""])[0].toLowerCase();
+      // drop script/style blocks entirely, including their content
+      if (name === "script" || name === "style") {
+        const end = raw.toLowerCase().indexOf(`</${name}>`, i);
+        i = end === -1 ? n : end + name.length + 3;
+      }
+      if (name === "p" || name === "br" || name === "li" || name === "div" || name === "tr") out += " ";
+    } else if (ch === "&") {
+      const semi = raw.indexOf(";", i);
+      const word = semi !== -1 && semi - i <= 8 ? raw.slice(i + 1, semi) : "";
+      const dec = ENTITIES[word.startsWith("#") ? "#" + parseInt(word.slice(1), 10) : word];
+      if (dec !== undefined) {
+        out += dec;
+        i = semi + 1;
+      } else {
+        out += ch;
+        i += 1;
+      }
+    } else {
+      out += ch;
+      i += 1;
+    }
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
 export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) {
   const todoState = createTodoState();
   builtinTools._todos = todoState;
@@ -521,51 +566,6 @@ export function builtinTools({ cwd, skills, sandboxMode = "danger", cfg = {} }) 
         const raw = capped;
         const type = res.headers.get("content-type") || "";
         let body = raw;
-// HTML-to-text as a single-pass character parser: no regexes to fool, no
-// replace chains to double-unescape. Tags are skipped (script/style with
-// their contents), entities are decoded only via a fixed lookup map, so
-// "&amp;lt;" yields the text "&lt;" and never "<".
-const ENTITIES = {
-  nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
-  "#39": "'", "#160": " ",
-};
-
-function htmlToText(raw) {
-  let out = "";
-  let i = 0;
-  const n = raw.length;
-  while (i < n) {
-    const ch = raw[i];
-    if (ch === "<") {
-      const close = raw.indexOf(">", i);
-      const tag = close === -1 ? raw.slice(i + 1) : raw.slice(i + 1, close);
-      i = close === -1 ? n : close + 1;
-      const name = (tag.match(/^[a-zA-Z]+/) || [""])[0].toLowerCase();
-      // drop script/style blocks entirely, including their content
-      if (name === "script" || name === "style") {
-        const end = raw.toLowerCase().indexOf(`</${name}>`, i);
-        i = end === -1 ? n : end + name.length + 3;
-      }
-      if (name === "p" || name === "br" || name === "li" || name === "div" || name === "tr") out += " ";
-    } else if (ch === "&") {
-      const semi = raw.indexOf(";", i);
-      const word = semi !== -1 && semi - i <= 8 ? raw.slice(i + 1, semi) : "";
-      const dec = ENTITIES[word.startsWith("#") ? "#" + parseInt(word.slice(1), 10) : word];
-      if (dec !== undefined) {
-        out += dec;
-        i = semi + 1;
-      } else {
-        out += ch;
-        i += 1;
-      }
-    } else {
-      out += ch;
-      i += 1;
-    }
-  }
-  return out.replace(/\s+/g, " ").trim();
-}
-
         if (type.includes("text/html")) {
           body = htmlToText(raw);
         }

@@ -79,6 +79,12 @@ function applyUpdate(content, chunks) {
   return contentLines.join("\n");
 }
 
+// Target paths of a patch, in order, so the caller can checkpoint the files
+// before the patch mutates them (including files it will delete).
+export function patchTargets(patchText) {
+  return parsePatch(patchText).map((h) => h.path);
+}
+
 export function applyPatchTool({ cwd }) {
   return {
     name: "apply_patch",

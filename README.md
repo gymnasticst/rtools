@@ -229,10 +229,10 @@ drag & drop               перетащите файл в окно ввода (
 ## Разработка
 
 ```bash
-npm test    # весь тестовый прогон (tests/mcp-proxy.test.mjs)
+npm test    # весь тестовый прогон (mcp-proxy, regression, wave3–wave7)
 ```
 
-CI (`.github/workflows/ci.yml`) гоняет `npm test` на каждый push в `main` и на PR; релизы — по git-тегам (`.github/workflows/release.yml`). Структура кода: `bin/` — точки входа, `src/` — ядро (агент, инструменты, песочница, MCP, сессии, TUI, конфиг), `tests/` — тесты.
+Релизы: workflow «Auto release» (`.github/workflows/auto-release.yml`) после каждого push в `main` берёт версию из `package.json`, гоняет `npm test`, синхронизирует `install.sh`/README, ставит тег и публикует GitHub Release; ручной запуск — `.github/workflows/release.yml`. Структура кода: `bin/` — точки входа, `src/` — ядро (агент, инструменты, песочница, MCP, сессии, TUI, конфиг), `tests/` — тесты.
 
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 

@@ -15,6 +15,7 @@ import { jobTool } from "./jobs.js";
 import { mcpConnectTool, installPackagesTool } from "./mcp-presets.js";
 import { runHook } from "./hooks.js";
 import { snapshotFile } from "./checkpoints.js";
+import { patchTargets } from "./apply-patch.js";
 import { addUsage } from "./usage.js";
 
 export function loadAgentsMd(cwd) {
@@ -206,11 +207,21 @@ export async function runAgentLoop({ provider, apiKey, model, messages, tools, a
           try {
             const args = safeParse(call.arguments);
             if (tool.kind === "shell" && sandbox) args.__sandboxMode = sandbox;
-            if (shouldCheckpoint(tool) && typeof args.path === "string") {
-              try {
-                snapshotFile(path.resolve(cwd, args.path), cwd);
-              } catch {
-                // checkpointing is best-effort
+            if (shouldCheckpoint(tool)) {
+              // apply_patch carries whole multi-file patches in args.patch;
+              // snapshot every existing target so /undo can restore them.
+              const targets =
+                tool.name === "apply_patch" && typeof args.patch === "string"
+                  ? patchTargets(args.patch).map((p) => path.resolve(cwd, p))
+                  : typeof args.path === "string"
+                    ? [path.resolve(cwd, args.path)]
+                    : [];
+              for (const t of targets) {
+                try {
+                  snapshotFile(t, cwd);
+                } catch {
+                  // checkpointing is best-effort
+                }
               }
             }
             result = await tool.handler(args);

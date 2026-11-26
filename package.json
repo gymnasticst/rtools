@@ -1,6 +1,6 @@
 {
   "name": "rtools",
-  "version": "0.1.34",
+  "version": "0.1.35",
   "description": "RTools — CLI coding agent with pluggable model providers, MCP plugins and skills",
   "type": "module",
   "bin": {
@@ -11,7 +11,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node tests/mcp-proxy.test.mjs && node tests/wave3.test.mjs && node tests/wave4.test.mjs && node tests/wave5.test.mjs && node tests/wave6.test.mjs && node tests/wave7.test.mjs"
+    "test": "node tests/mcp-proxy.test.mjs && node tests/regression.test.mjs && node tests/wave3.test.mjs && node tests/wave4.test.mjs && node tests/wave5.test.mjs && node tests/wave6.test.mjs && node tests/wave7.test.mjs"
   },
   "license": "Apache-2.0"
 }
