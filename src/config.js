@@ -18,6 +18,15 @@ export const BUILTIN_PROVIDERS = {
     wire_api: "anthropic",
     default_model: "claude-sonnet-4-5",
   },
+  // OpenCode Zen: OpenAI-compatible relay. Free tier is keyless — free models
+  // (ids ending in "-free") work without an account; paid models need a Zen
+  // key (override with [model_providers.zen] env_key = "ZEN_API_KEY").
+  zen: {
+    name: "OpenCode Zen",
+    base_url: "https://opencode.ai/zen/v1",
+    wire_api: "chat",
+    default_model: "nemotron-3.5-lightning-free",
+  },
 };
 
 const CONFIG_FILES = () => [

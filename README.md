@@ -87,6 +87,8 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 
 Любой сервис с OpenAI-совместимым API: достаточно `[model_providers.<name>]` с `base_url`, `env_key` и `wire_api` (`chat`, `responses` или `anthropic`). MCP-серверы с OAuth авторизуются локально: агент поднимает callback-сервер на порту 14778 и ждёт код не дольше 5 минут (переопределяется `RTOOLS_OAUTH_CODE_TIMEOUT_MS`).
 
+Встроенный провайдер **OpenCode Zen** (`/provider zen`) — бесплатные модели без ключа: `nemotron-3.5-lightning-free` (по умолчанию), `mimo-v2.6-flash-free`, `deepseek-v4.1-flash-free`, `hy4-flash-free`, `jev-1.13-free`, `beam-free`, `iceman-free`, `flint-40b-free`, `tidepool-alpha-free`, `nemotron-3.5-super-vl-free`. Полный список: `/model` в REPL (клавиша выбора модели) или `https://opencode.ai/zen/v1/models`. Бесплатный tier имеет лимит запросов и может отвечать `FreeUsageLimitError` — тогда используйте платные модели, добавив в config.toml `[model_providers.zen]` с `env_key = "ZEN_API_KEY"`.
+
 ## Возможности агента
 
 - Запуск команд shell (с песочницей: read-only / workspace / danger; в Linux — bubblewrap, при его отсутствии fail-closed).
