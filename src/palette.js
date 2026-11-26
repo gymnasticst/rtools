@@ -13,6 +13,24 @@ const CYAN = (s) => `\x1b[36m${s}\x1b[0m`;
 const width = () => process.stdout.columns || 60;
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
+// Centered modal overlay: a rounded frame with the title in its top border —
+// the OpenCode settings-dialog look. `title` is captured from the caller.
+let titleText = "";
+function overlay(lines, innerWidth) {
+  const w = Math.min(Math.max(innerWidth, 24) + 6, width() - 2);
+  const left = Math.max(0, Math.floor((width() - w) / 2));
+  const pad = " ".repeat(left);
+  const frame = [];
+  const t = clip(titleText, w - 8);
+  frame.push(`${pad}╭─ ${BOLD(t)} ${"─".repeat(Math.max(0, w - 6 - t.length))}╮`);
+  for (const l of lines) {
+    const len = l.replace(/\x1b\[[0-9;]*m/g, "").length;
+    frame.push(`${pad}│ ${l}${" ".repeat(Math.max(0, w - 5 - len))}│`);
+  }
+  frame.push(`${pad}╰${"─".repeat(w - 2)}╯`);
+  return frame.join("\n");
+}
+
 function rowFor(item, selected) {
   const cursor = selected ? CYAN("› ") : "  ";
   const label = selected ? BOLD(item.label) : item.label;
@@ -55,6 +73,7 @@ function captureKeys({ onKey, finish, cleanup }) {
 // Searchable picker. items: { label, hint?, value }. Resolves the selected
 // value, null on Esc, PALETTE_CANCEL on Ctrl+C (distinguishable from Esc).
 export function pick({ title, items, pageSize = 8 }) {
+  titleText = title;
   let filter = "";
   let sel = 0;
   let printed = 0;
@@ -66,15 +85,16 @@ export function pick({ title, items, pageSize = 8 }) {
     const list = matches();
     sel = Math.max(0, Math.min(sel, list.length - 1));
     const [a, b] = windowFor(list.length, sel, pageSize);
-    const lines = [
-      DIM(`${title}`),
+    const inner = [
       `${DIM("filter ▸ ")}${filter}${DIM("  (↑/↓ · Enter · Esc)")}`,
       ...list.slice(a, b).map((item, i) => rowFor(item, a + i === sel)),
     ];
-    if (!list.length) lines.push(DIM("  (no matches)"));
+    if (!list.length) inner.push(DIM("  (no matches)"));
+    const innerWidth = Math.max(...inner.map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").length), title.length);
+    const lines = overlay(inner, innerWidth);
     if (printed) process.stdout.write(`\x1b[${printed}A\x1b[J`);
-    process.stdout.write(lines.join("\n") + "\n");
-    printed = lines.length;
+    process.stdout.write(lines + "\n");
+    printed = lines.split("\n").length;
   };
   const cleanup = () => {
     if (printed) process.stdout.write(`\x1b[${printed}A\x1b[J`);
@@ -100,13 +120,15 @@ export function pick({ title, items, pageSize = 8 }) {
 
 // One-line text input with an initial value. Resolves the string or null.
 export function typeText({ title, prompt = "", initial = "" }) {
+  titleText = title;
   let buf = String(initial);
   let printed = 0;
   const render = () => {
-    const lines = [DIM(title), `${DIM(prompt + " ▸ ")}${buf}\x1b[K`];
+    const inner = [`${DIM(prompt + " ▸ ")}${buf}\x1b[K`];
+    const lines = overlay(inner, Math.max(buf.length + prompt.length + 6, title.length));
     if (printed) process.stdout.write(`\x1b[${printed}A\x1b[J`);
-    process.stdout.write(lines.join("\n") + "\n");
-    printed = lines.length;
+    process.stdout.write(lines + "\n");
+    printed = lines.split("\n").length;
   };
   const cleanup = () => {
     if (printed) process.stdout.write(`\x1b[${printed}A\x1b[J`);
