@@ -23,7 +23,6 @@ RTools — CLI-агент для программирования (команд�
 - [Разработка](#разработка)
 - [История версий](#история-версий)
 - [Лицензия](#лицензия)
-- [Лицензия](#лицензия)
 
 ## Установка
 
@@ -55,8 +54,8 @@ rt exec "объясни Makefile"  # one-shot запуск без UI
 ## Флаги CLI
 
 ```
-rt [chat] [промпт]    интерактивная сессия (по умолчанию)
-rt exec "<промпт>"    one-shot запуск без интерфейса
+rt [chat] [промпт]        интерактивная сессия (по умолчанию)
+rt exec "<промпт>"        one-shot запуск без интерфейса
 --approval <mode>         untrusted | never | always
 --profile <name>          профиль из [profile.<name>]
 --add-dir <dir>           дополнительная доступная на запись папка (можно повторять)
@@ -146,22 +145,26 @@ description: Что делает скилл
 
 ```
 /usage                    токены (вход/выход) и оценка стоимости за сессию
-/stats [days]            статистика по сессиям (токены, стоимость, время) из ~/.rtools/usage.jsonl
-/smartroute on|off|simple <model>|strong <model>   авто-роутинг: простые реплики — на дешёвую модель ([smart_routing] в config.toml)
-/todos                   список задач, который агент ведёт сам (инструмент todo_write)
+/stats [days]             статистика по сессиям (токены, стоимость, время) из ~/.rtools/usage.jsonl
+/smartroute on|off|simple <model>|strong <model>
+                          авто-роутинг: простые реплики — на дешёвую модель ([smart_routing] в config.toml)
+/todos                    список задач, который агент ведёт сам (инструмент todo_write)
 /goal <текст>|clear|done  долгоживущая цель сессии: видна агенту в каждом шаге, прогресс — инструментом goal_status
-/cron add <имя> <cron> <промпт>|rm|list   запланированные задачи (5 полей), запускаются пока открыт REPL
-/share [файл]            выгрузить диалог в markdown
-/summary [файл]          структурное саммари сессии (запросы, инструменты, файлы)
-/wiki [каталог]          вики по репозиторию: страница на раздел исходников
-/worktree enter <имя>|exit <имя>|list     изоляция задачи в git worktree (.rtools-worktrees/)
-/remote use <user@host>|exit   shell-инструмент выполняет команды по ssh на удалённой машине
-/language en|ru          язык сообщений интерфейса
-/vim                     vim-режим ввода (normal/insert, motions w/b/0/$, операторы d/c/y/p)
+/cron add <имя> <cron> <промпт>|rm|list
+                          запланированные задачи (5 полей), запускаются пока открыт REPL
+/share [файл]             выгрузить диалог в markdown
+/summary [файл]           структурное саммари сессии (запросы, инструменты, файлы)
+/wiki [каталог]           вики по репозиторию: страница на раздел исходников
+/worktree enter <имя>|exit <имя>|list
+                          изоляция задачи в git worktree (.rtools-worktrees/)
+/remote use <user@host>|exit
+                          shell-инструмент выполняет команды по ssh на удалённой машине
+/language en|ru           язык сообщений интерфейса
+/vim                      vim-режим ввода (normal/insert, motions w/b/0/$, операторы d/c/y/p)
 /undo                     вернуть файл к состоянию до последней правки агента
 /checkpoints              список чекпоинтов файлов этого проекта
 /jobs start <имя> <cmd>   фоновая задача (тесты, сборка, сервер), переживёт шаг
-/jobs [status] /jobs logs <имя> /jobs stop <имя>
+/jobs [status] | /jobs logs <имя> | /jobs stop <имя>
 /trace on|off             JSONL-лог шагов и инструментов в ~/.rtools/logs
 /copy                     последний ответ агента в буфер обмена
 /find <текст>             поиск по расшифровке сессии
@@ -194,7 +197,8 @@ drag & drop               перетащите файл в окно ввода (
 
 /provider <id>            сменить провайдера (built-in или свой)
 /provider list            список провайдеров
-/provider add <id> <base_url> [env_key] [wire_api]   свой провайдер (wire_api: chat | responses | anthropic)
+/provider add <id> <base_url> [env_key] [wire_api]
+                          свой провайдер (wire_api: chat | responses | anthropic)
 /provider rm <id>         удалить своего провайдера
 
 /agent list               профили-агенты из [profile.*] в config.toml
@@ -270,46 +274,47 @@ npm test    # весь тестовый прогон (mcp-proxy, regression, wav
 
 - `v0.1.23` — Поднимаем Node в CI до 24 (пресет context-mode требует Node >= 24.15.0, на Node 22 автотест честно писал 'skipped' вместо 'already installed' и релиз падал); дефолт при первом запуске — бесплатные модели OpenCode Zen без ключа, `/provider` и визард переключают модель на дефолтную у провайдера; фикс обновления: имена в SHASUMS256.txt сравниваются по basename (2026-11-26)
 
-- `v0.1.22` — interactive install progress and first-run setup wizard in the TUI (2026-11-26)
+- `v0.1.22` — интерактивный прогресс установки и визард первого запуска в TUI (2026-11-26)
 
-- `v0.1.21` — fix install: ship package.json with the installed files (2026-11-26)
-- `v0.1.20` — add OpenCode Zen provider with keyless free models (2026-11-26)
+- `v0.1.21` — фикс установки: package.json кладётся в поставку вместе с файлами (2026-11-26)
 
-- `v0.1.19` — attach files by dropping them onto the input window (2026-11-25)
+- `v0.1.20` — новый провайдер OpenCode Zen с бесплатными моделями без ключа (2026-11-26)
 
-- `v0.1.18` — feat(agent): mandatory clarifying questions and self-written AGENTS.md (2026-11-25)
+- `v0.1.19` — вложение файлов перетаскиванием в окно ввода (2026-11-25)
 
-- `v0.1.17` — fix(tui): static typeText import in terminal panel (2026-11-25)
+- `v0.1.18` — обязательные уточняющие вопросы и самописный AGENTS.md (2026-11-25)
 
-- `v0.1.16` — Add TUI panels: file browser, terminal, live sub-agents, real MCP/plugin status (2026-11-25)
+- `v0.1.17` — фикс TUI: статический импорт typeText в панели терминала (2026-11-25)
 
-- `v0.1.15` — Make rt the primary command; add uninstall (update already existed) (2026-11-25)
+- `v0.1.16` — панели TUI: браузер файлов, терминал, живые саб-агенты, реальный статус MCP и плагинов (2026-11-25)
 
-- `v0.1.14` — Fix live-check findings: addUsage crashed rtools exec (undefined tracker); vim dw consumed by motion (2026-11-25)
+- `v0.1.15` — rt — основная команда; добавлен uninstall (update уже был) (2026-11-25)
 
-- `v0.1.13` — Add openclaude-derived features: smart routing, agent todos, monitor, cron, stats, keybindings, auto-compact, goal mode, session export, worktrees, LSP, vim mode, i18n, project memory, remote ssh sessions (2026-11-25)
+- `v0.1.14` — фиксы по live-проверке: addUsage ронял `rtools exec` (undefined tracker); vim dw перехватывался как motion (2026-11-25)
 
-- `v0.1.12` — Fix silent approval bypass in delegate sub-agents (2026-11-25)
+- `v0.1.13` — функции из openclaude: smart routing, agent todos, monitor, cron, stats, keybindings, auto-compact, goal mode, session export, worktrees, LSP, vim mode, i18n, project memory, remote ssh sessions (2026-11-25)
 
-- `v0.1.11` — fix(jobs): lines=0 clamp actually clamps; signal whole process group so trapped TERM and children are handled; regression tests (2026-11-25)
+- `v0.1.12` — фикс тихого обхода approval в саб-агентах delegate (2026-11-25)
 
-- `v0.1.10` — fix(security,jobs): team sub-agents honor session approval policy; graceful SIGTERM for jobs; clamp job log lines (2026-11-25)
+- `v0.1.11` — фикс jobs: clamp lines=0 реально ограничивает; сигнал уходит всей группе процессов, чтобы обработанный TERM доставался и детям; регрессионные тесты (2026-11-25)
 
-- `v0.1.9` — feat(agent): wave 1-3 — diff approvals, checkpoints/undo, background jobs, team agents, hooks, usage, view_image, interrupts, tracing (2026-11-25)
+- `v0.1.10` — фикс безопасности и jobs: саб-агенты team соблюдают политику approval сессии; корректный SIGTERM для jobs; ограничение лога job (2026-11-25)
 
-- `v0.1.8` — ci: bump checkout/setup-node to v5 and action-gh-release to v3 (Node 24 runtime) (2026-11-25)
+- `v0.1.9` — волны 1–3: diff-подтверждения, чекпоинты/undo, фоновые задачи, team-агенты, хуки, usage, view_image, прерывания, трассировка (2026-11-25)
 
-- `v0.1.7` — fix(release): human-readable release notes instead of commit list (2026-11-25)
+- `v0.1.8` — CI: checkout/setup-node до v5 и action-gh-release до v3 (runtime Node 24) (2026-11-25)
 
-- `v0.1.6` — feat(tui): OpenCode-style command palette (Ctrl+P) and settings screen (Ctrl+O) (2026-11-25)
+- `v0.1.7` — человекочитаемые release notes вместо списка коммитов (2026-11-25)
 
-- `v0.1.5` — feat(repl,config): provider/model/agent management in TUI, persistent /effort (2026-11-25)
+- `v0.1.6` — палитра команд (Ctrl+P) и экран настроек (Ctrl+O) в стиле OpenCode (2026-11-25)
 
-- `v0.1.4` — feat(tui): markdown streaming highlight, plain/color themes (NO_COLOR, theme=plain) (2026-11-25)
+- `v0.1.5` — управление провайдерами, моделями и агентами в TUI, персистентный /effort (2026-11-25)
 
-- `v0.1.3` — feat(repl,session,web-search): /export markdown, auto-compact near context window, web_search max_results (2026-11-25)
+- `v0.1.4` — потоковая Markdown-подсветка, plain/цветовые темы (NO_COLOR, theme=plain) (2026-11-25)
 
-- `v0.1.2` — feat(release): auto-release on every push to main (version bump, install.sh, README changelog) (2026-11-25)
+- `v0.1.3` — /export markdown, автокомпакция у лимита контекста, web_search max_results (2026-11-25)
+
+- `v0.1.2` — авторелиз на каждый пуш в main (бамп версии, install.sh, ченджлог README) (2026-11-25)
 
 Каждый пуш в `main` автоматически бампает patch-версию, публикует релиз (тарбол и SHASUMS) и обновляет версию в `install.sh` и в этом README.
 
