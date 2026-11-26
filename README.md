@@ -56,11 +56,23 @@ rt exec "объясни Makefile"  # one-shot запуск без UI
 ```
 rt [chat] [промпт]        интерактивная сессия (по умолчанию)
 rt exec "<промпт>"        one-shot запуск без интерфейса
---approval <mode>         untrusted | never | always
---profile <name>          профиль из [profile.<name>]
---add-dir <dir>           дополнительная доступная на запись папка (можно повторять)
---update                  обновление до последнего релиза
---version, --help         версия и справка
+rt plugin <install|list>  плагины: скиллы + MCP-серверы
+rt skill <add|list|rm>    управление скиллами
+rt uninstall [--with-data]
+                          удаление бинаря (--with-data — и данные ~/.rtools)
+
+-m, --model <имя>         модель (по умолчанию — из конфига)
+-p, --provider <id>       провайдер (built-in: openai, anthropic; свои — из конфига)
+-c, --config <путь>       путь к config.toml
+    --approval <mode>     untrusted | never | always
+    --sandbox <mode>      read-only | workspace | danger (по умолчанию: workspace)
+    --profile <имя>       профиль из [profile.<имя>]
+    --effort <уровень>    усилие размышления: low | medium | high
+    --verbosity <уровень> подробность ответов: low | medium | high
+    --add-dir <dir>       дополнительная папка на запись (можно повторять)
+-w, --workdir <dir>       рабочая директория инструментов (по умолчанию: cwd)
+    --update              обновление до последнего релиза
+    --version, --help     версия и справка
 ```
 
 ## Конфигурация
@@ -91,7 +103,7 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 
 Любой сервис с OpenAI-совместимым API: достаточно `[model_providers.<name>]` с `base_url`, `env_key` и `wire_api` (`chat`, `responses` или `anthropic`). MCP-серверы с OAuth авторизуются локально: агент поднимает callback-сервер на порту 14778 и ждёт код не дольше 5 минут (переопределяется `RTOOLS_OAUTH_CODE_TIMEOUT_MS`).
 
-Встроенный провайдер **OpenCode Zen** (`/provider zen`) — бесплатные модели без ключа: `nemotron-3.5-lightning-free` (по умолчанию), `mimo-v2.6-flash-free`, `deepseek-v4.1-flash-free`, `hy4-flash-free`, `jev-1.13-free`, `beam-free`, `iceman-free`, `flint-40b-free`, `tidepool-alpha-free`, `nemotron-3.5-super-vl-free`. Полный список: `/model` в REPL (клавиша выбора модели) или `https://opencode.ai/zen/v1/models`. Бесплатный tier имеет лимит запросов и может отвечать `FreeUsageLimitError` — тогда используйте платные модели, добавив в config.toml `[model_providers.zen]` с `env_key = "ZEN_API_KEY"`.
+Встроенный провайдер **OpenCode Zen** (`/provider zen`) — бесплатные модели без ключа: `nemotron-3.5-lightning-free` (по умолчанию), `mimo-v2.6-flash-free`, `deepseek-v4.1-flash-free`, `hy4-flash-free`, `jev-1.13-free`, `beam-free`, `iceman-free`, `flint-40b-free`, `seaglass-alpha-free`, `nemotron-3.5-super-vl-free`. Полный список: `/model` в REPL (клавиша выбора модели) или `https://opencode.ai/zen/v1/models`. Бесплатный tier имеет лимит запросов и может отвечать `FreeUsageLimitError` — тогда используйте платные модели, добавив в config.toml `[model_providers.zen]` с `env_key = "ZEN_API_KEY"`.
 
 ## Возможности агента
 
@@ -114,7 +126,7 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 
 - **context7** — документация библиотек и API вместо догадок по памяти;
 - **playwright** — проверка UI и веб-работы в реальном браузере;
-- **context-mode** — контекстная песочница для команд и страниц с большим выводом.
+- **context-mode** — контекстная песочница для команд и страниц с большим выводом (для этого пресета нужен Node ≥ 24.15; на Node 22 он пропускается).
 
 ```bash
 rt plugin install <name>                 # например linear, slack, stripe, github
@@ -137,7 +149,7 @@ description: Что делает скилл
 
 ## Slash-команды в сессии
 
-`/help /init /review /plan /model /provider /agent /policy /sandbox /prompts /tools /skills /status /diff /export /compact /resume /settings /effort /verbosity /permissions /usage /stats /smartroute /todos /goal /cron /share /summary /wiki /worktree /remote /language /vim /files /terminal /agents /mcp /plugin list /jobs /undo /checkpoints /trace /copy /find /paste /edit /clear /quit`
+`/help /init /review /plan /model /provider /agent /policy /sandbox /prompts /tools /skills /status /diff /export /compact /resume /settings /effort /verbosity /permissions /usage /stats /smartroute /todos /goal /cron /share /summary /wiki /worktree /remote /language /vim /files /terminal /agents /mcp /plugin /jobs /undo /checkpoints /trace /copy /find /paste /edit /setup /palette /clear /quit`
 
 `/export [file]` сохраняет сессию в Markdown (чат и вызовы инструментов) — по умолчанию `rtools-session-<id>.md`. При приближении к лимиту контекстного окна (`context_window`, по умолчанию 128k) сессия ужимается автоматически — вручную вызывать `/compact` не нужно.
 
@@ -170,7 +182,8 @@ description: Что делает скилл
 /find <текст>             поиск по расшифровке сессии
 /paste                    многострочный ввод, завершение строкой "."
 /edit                     длинный промпт в $EDITOR (Ctrl+G — то же)
-@путь/к/файлу             инлайн содержимого файла в промпт (до 3 файлов)
+@путь/к/файлу             текстовый файл инлайнится в промпт (до 20 000 символов),
+                          картинка уходит в модель как изображение (до 20 МБ)
 drag & drop               перетащите файл в окно ввода (или вставьте его путь):
                           путь в кавычках, file://-URI или с экранированными
                           пробелами становится вложением — текст инлайнится,
@@ -238,7 +251,7 @@ drag & drop               перетащите файл в окно ввода (
 npm test    # весь тестовый прогон (mcp-proxy, regression, wave3–wave7)
 ```
 
-Релизы: workflow «Auto release» (`.github/workflows/auto-release.yml`) после каждого push в `main` берёт версию из `package.json`, гоняет `npm test`, синхронизирует `install.sh`/README, ставит тег и публикует GitHub Release; ручной запуск — `.github/workflows/release.yml`. Структура кода: `bin/` — точки входа, `src/` — ядро (агент, инструменты, песочница, MCP, сессии, TUI, конфиг), `tests/` — тесты.
+Релизы: workflow «Auto release» (`.github/workflows/auto-release.yml`) гоняет тесты и публикует GitHub Release, когда в `package.json` поднята версия — иначе пуш проходит без релиза (подробности в конце раздела «История версий»); ручной запуск — `.github/workflows/release.yml`. Структура кода: `bin/` — точки входа, `src/` — ядро (агент, инструменты, песочница, MCP, сессии, TUI, конфиг), `tests/` — тесты.
 
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 
