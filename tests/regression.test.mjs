@@ -3,7 +3,7 @@
 // 2. htmlToText resists double-escaping and strips script/style content
 // 3. config writes cannot pollute Object.prototype
 import assert from "node:assert";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -292,6 +292,30 @@ try {
   assert.strictEqual(entry.name, "owner/other", "a non-colliding marketplace must still be added");
   ok("marketplace add refuses names colliding after sanitization (owner/plugins vs owner_plugins)");
 } catch (e) { fail("marketplace cache collision", e); }
+
+// --- 11. pluginInstall finds a marketplace whose catalog name differs ----
+try {
+  const rtools = path.join(home, ".rtools");
+  writeFileSync(path.join(rtools, "marketplaces.json"), JSON.stringify([
+    { name: "my_market", repo: "https://example.invalid/x", catalog: ".agents/plugins/marketplace.json" },
+  ]));
+  // Pre-seed the cache so no git clone happens. The catalog's internal name
+  // differs from the registered entry name — the bug's trigger.
+  const cache = path.join(rtools, "marketplace-cache", "my_market", ".agents", "plugins");
+  mkdirSync(cache, { recursive: true });
+  writeFileSync(path.join(cache, "marketplace.json"), JSON.stringify({
+    name: "unrelated-catalog-name",
+    plugins: [{ name: "my-plugin", description: "test", source: { path: "plugin_a" } }],
+  }));
+  const pluginDir = path.join(rtools, "marketplace-cache", "my_market", "plugin_a");
+  mkdirSync(pluginDir, { recursive: true });
+  writeFileSync(path.join(pluginDir, "plugin.marker"), "x");
+
+  const { pluginInstall } = await import("../src/marketplace.js");
+  const out = await pluginInstall("my-plugin");
+  assert.match(out, /plugin "my-plugin"/, `install must succeed via the right marketplace, got: ${out}`);
+  ok("pluginInstall resolves marketplace by its registered name, not catalog.name");
+} catch (e) { fail("marketplace lookup by entry name", e); }
 
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 

@@ -103,7 +103,10 @@ export async function marketplaceList(query) {
       for (const entry of catalog.plugins || []) {
         const p = {
           name: entry.name,
-          marketplace: catalog.name,
+          // The registered marketplace entry's name, not catalog.name: the
+          // catalog's internal name need not match, and pluginInstall looks
+          // the marketplace up by this field.
+          marketplace: m.name,
           category: entry.category || "",
           source: entry.source || {},
         };
