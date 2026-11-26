@@ -64,8 +64,9 @@ if [ -z "${SRC:-}" ]; then
 fi
 
 mkdir -p "$PREFIX"
-# rtools is dependency-free Node — copy bin/ + src/ and add launchers.
+# rtools is dependency-free Node — copy bin/ + src/ + package.json and add launchers.
 cp -r "$SRC/bin" "$SRC/src" "$TMP/pkg" 2>/dev/null || { mkdir -p "$TMP/pkg"; cp -r "$SRC/bin" "$SRC/src" "$TMP/pkg/"; }
+cp "$SRC/package.json" "$TMP/pkg/"
 cp -r "$TMP/pkg" "$PREFIX/lib-rtools" 2>/dev/null || { rm -rf "$PREFIX/lib-rtools"; cp -r "$TMP/pkg" "$PREFIX/lib-rtools"; }
 cat > "$PREFIX/rt" <<LAUNCHER
 #!/bin/sh
