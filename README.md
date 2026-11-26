@@ -2,7 +2,7 @@
 
 RTools — CLI-агент для программирования (команда `rt`; `rtools` работает как алиас): интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
-![Version](https://img.shields.io/badge/version-0.1.39-blue)
+![Version](https://img.shields.io/badge/version-0.1.40-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 [![Release](https://img.shields.io/github/v/release/gymnasticst/rtools?label=release)](https://github.com/gymnasticst/rtools/releases)
@@ -243,6 +243,8 @@ npm test    # весь тестовый прогон (mcp-proxy, regression, wav
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## История версий
+
+- `v0.1.40` — v0.1.40: version bump to publish the accumulated fixes (2026-11-26)
 
 - `v0.1.39` — фиксы из код-ревью: `~` и `~/...` во вложениях резолвятся от домашней директории, а не от cwd; проектный конфиг `.rtools/config.toml` ищется в рабочей директории агента (`-w`), а не в cwd процесса; неизвестные флаги вроде `--sanbox` дают ошибку, а не превращаются в текст промпта; ssh-цель с ведущим дефисом отклоняется (нельзя подсунуть ssh свои опции) (2026-11-26)
 
