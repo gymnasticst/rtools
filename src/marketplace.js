@@ -34,12 +34,21 @@ export function listMarketplaces() {
   return [DEFAULT_MARKETPLACE, ...extra];
 }
 
+// Marketplace names are used as cache directory names (sanitized); distinct
+// names differing only in punctuation would collide ("owner/plugins" vs
+// "owner_plugins"), so additions are refused on such a clash.
+function cacheKey(name) {
+  return name.replace(/[^A-Za-z0-9_-]/g, "_");
+}
+
 // `rtools plugin marketplace add owner/repo [--ref main]`
 export function addMarketplace(source, { ref = "main" } = {}) {
   const repo = source.startsWith("http") || source.startsWith("git@") || source.endsWith(".git")
     ? source
     : `https://github.com/${source}`;
   const list = existsSync(MARKETPLACES_FILE()) ? readJson(MARKETPLACES_FILE()) : [];
+  const clash = [DEFAULT_MARKETPLACE, ...list].find((m) => cacheKey(m.name) === cacheKey(source));
+  if (clash) throw new Error(`marketplace "${source}" collides with "${clash.name}" in the cache directory; remove it or use a distinct name`);
   const entry = { name: source, repo, ref, catalog: ".agents/plugins/marketplace.json" };
   if (!list.some((m) => m.repo === repo)) list.push(entry);
   mkdirSync(RTOOLS_HOME(), { recursive: true });

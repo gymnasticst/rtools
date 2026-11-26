@@ -268,6 +268,31 @@ try {
   ok("lsp write to dead server stdin returns Error instead of crashing (EPIPE handled)");
 } catch (e) { fail("lsp dead stdin", e); }
 
+// --- 10. marketplaces whose names collide after sanitization are refused ---
+try {
+  const { addMarketplace } = await import("../src/marketplace.js");
+  const cwd = mkdtempSync(path.join(home, "mkt-"));
+  // collides with the default marketplace "openai/plugins" after sanitization
+  assert.throws(
+    () => addMarketplace("openai_plugins"),
+    /collides/,
+    "a name colliding with an existing marketplace's cache dir must be refused"
+  );
+  const rtools = path.join(home, ".rtools");
+  rmSync(path.join(rtools, "marketplaces.json"), { force: true });
+  writeFileSync(path.join(rtools, "marketplaces.json"), JSON.stringify([
+    { name: "owner/plugins", repo: "https://github.com/owner/plugins", ref: "main" },
+  ]));
+  assert.throws(
+    () => addMarketplace("owner_plugins"),
+    /collides/,
+    "a name colliding with an added marketplace's cache dir must be refused"
+  );
+  const entry = addMarketplace("owner/other");
+  assert.strictEqual(entry.name, "owner/other", "a non-colliding marketplace must still be added");
+  ok("marketplace add refuses names colliding after sanitization (owner/plugins vs owner_plugins)");
+} catch (e) { fail("marketplace cache collision", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 
 if (failures) {
