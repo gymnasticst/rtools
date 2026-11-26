@@ -3,7 +3,7 @@
 RTools — CLI-агент для программирования (команда `rt`; `rtools` работает как алиас): интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
 [![CI](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml/badge.svg)](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.1.37-blue)
+![Version](https://img.shields.io/badge/version-0.1.38-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-blue)
 
 ## Содержание
@@ -237,6 +237,8 @@ npm test    # весь тестовый прогон (mcp-proxy, regression, wav
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## История версий
+
+- `v0.1.38` — Правим 4 бага из ревью: saveConfig больше не затирает битый config.toml, apply_patch правит дубликаты контекста по порядку и применяет многофайловые патчи атомарно, OAuth обновляет токен по refresh_token без браузера (2026-11-26)
 
 - `v0.1.37` — MCP 2025-06-18: новый протокол, OAuth через protected resource, устойчивый self-update (2026-11-26)
 
