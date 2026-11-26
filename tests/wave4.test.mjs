@@ -110,6 +110,9 @@ ok(normalizeChord("f5") === "f5", "keys: function key");
   ok(problems.length === 3, `keys: three problems reported (${problems.length})`);
   ok(matchKeypress({ name: "p", ctrl: true }, "ctrl+p"), "keys: match ctrl+p");
   ok(!matchKeypress({ name: "p", ctrl: true }, "alt+p"), "keys: wrong modifier does not match");
+  ok(!matchKeypress({ name: "p", shift: true }, "p"), "keys: shift+letter does not match unshifted binding");
+  ok(matchKeypress({ name: "p", shift: true }, "shift+p"), "keys: shift+letter matches shifted binding");
+  ok(!matchKeypress({ name: "p" }, "shift+p"), "keys: plain letter does not match shifted binding");
 }
 
 // --- auto compact

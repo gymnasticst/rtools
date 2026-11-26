@@ -79,5 +79,5 @@ export function matchKeypress(key, chord) {
   if (isFn) return key.name === keyName && !!key.ctrl === needCtrl && !!key.meta === needAlt;
   const pressed = key.name || "";
   const plainMatch = pressed.length === 1 ? pressed === keyName : pressed === keyName;
-  return plainMatch && (needCtrl ? !!key.ctrl : !key.ctrl) && (needAlt ? !!key.meta : !key.meta) && (needShift ? !!key.shift : true);
+  return plainMatch && (needCtrl ? !!key.ctrl : !key.ctrl) && (needAlt ? !!key.meta : !key.meta) && (!!key.shift === needShift);
 }
