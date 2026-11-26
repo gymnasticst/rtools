@@ -125,6 +125,37 @@ auth.s.close();
   nullBody.s.close();
 }
 
+// Case 2d: line handling must be serialized — a slow first request (e.g. one
+// that triggers the OAuth probe) must not let a later request race it and
+// write its reply first. The old code ran every line's handler concurrently,
+// so with a 600ms delay on id 1 and an instant id 2 the replies came back
+// out of order.
+{
+  let seen = [];
+  const slowFirst = await fakeServer((req, res, body) => {
+    seen.push(body.id);
+    const delay = body.id === 1 ? 600 : 0;
+    setTimeout(() => okJson({ echo: `id-${body.id}` })(req, res, body), delay);
+  });
+  const p = spawn("node", [path.join(root, "bin", "rtools-mcp-proxy.js"), "http", slowFirst.url]);
+  let out = "";
+  p.stdout.on("data", (d) => (out += d));
+  p.stderr.on("data", () => {});
+  p.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call" }) + "\n");
+  p.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }) + "\n");
+  await new Promise((r) => setTimeout(r, 2500));
+  p.kill();
+  const ids = out.split("\n").filter((l) => l.trim()).map((l) => { try { return JSON.parse(l)?.id; } catch { return "?"; } });
+  // both requests must have been served, and id 2's reply must not have
+  // overtaken id 1's (which the old concurrent handler allowed)
+  const concurrent = JSON.stringify(ids) !== JSON.stringify([1, 2]);
+  if (concurrent) {
+    console.error(`FAIL: replies not in request order (stdout ids: ${JSON.stringify(ids)}, server saw: ${JSON.stringify(seen)})`);
+    failures++;
+  } else console.log("SEQ    : concurrent stdin lines handled sequentially, replies in request order");
+  slowFirst.s.close();
+}
+
 rmSync(fakeHome, { recursive: true, force: true });
 
 // Case 3: PKCE round-trip — the code_verifier sent to the token endpoint must

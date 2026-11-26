@@ -59,16 +59,7 @@ async function handle(msg) {
   return extractJson(text);
 }
 
-const rl = createInterface({ input: process.stdin });
-rl.on("line", async (line) => {
-  const trimmed = line.trim();
-  if (!trimmed) return;
-  let msg;
-  try {
-    msg = JSON.parse(trimmed);
-  } catch {
-    return;
-  }
+async function processMessage(msg) {
   try {
     const result = await handle(msg);
     if (msg.id !== undefined) {
@@ -85,4 +76,23 @@ rl.on("line", async (line) => {
       process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, error: { message: e.message } }) + "\n");
     }
   }
+}
+
+const rl = createInterface({ input: process.stdin });
+// Line handling is serialized through this chain: a line is processed only
+// after the previous one has fully finished (including the first request's
+// OAuth probe), so requests never race on the stdio pipe and replies are
+// written in request order. processMessage never rejects, so the chain
+// cannot stall on a failed line.
+let tail = Promise.resolve();
+rl.on("line", (line) => {
+  const trimmed = line.trim();
+  if (!trimmed) return;
+  let msg;
+  try {
+    msg = JSON.parse(trimmed);
+  } catch {
+    return;
+  }
+  tail = tail.then(() => processMessage(msg));
 });
