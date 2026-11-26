@@ -516,6 +516,27 @@ try {
   ok("text between dropped file references survives images and skipped files");
 } catch (e) { fail("attach text between file refs", e); }
 
+// --- 18. ssh target must not start with '-' (option injection) -----------------
+try {
+  const { remoteExec } = await import("../src/remote.js");
+
+  for (const bad of ["-oProxyCommand=evil", "--", "-host"]) {
+    let threw = null;
+    try { remoteExec(bad, "echo hi"); } catch (e) { threw = e; }
+    assert.ok(threw, `target ${JSON.stringify(bad)} must be rejected`);
+    assert.match(threw.message, /^bad ssh target:/, `rejection must be the validation error, got: ${threw?.message}`);
+  }
+  // Valid targets pass validation; the spawn itself may fail to connect here
+  // (no real host), so only the validation error is disqualifying.
+  for (const good of ["host", "user@host", "prod-web.example.com", "ssh-config-entry"]) {
+    let threw = null;
+    try { remoteExec(good, "echo hi", { timeoutMs: 5000 }); } catch (e) { threw = e; }
+    assert.ok(!threw, `normal target ${JSON.stringify(good)} must pass validation, got: ${threw?.message}`);
+  }
+
+  ok("remoteExec rejects leading-dash ssh targets before spawning ssh");
+} catch (e) { fail("ssh target option injection", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 
 if (failures) {

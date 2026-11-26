@@ -6,7 +6,10 @@ import { spawnSync } from "node:child_process";
 
 // Runs a single command on the remote host. Returns { code, stdout, stderr }.
 export function remoteExec(target, command, { timeoutMs = 60000 } = {}) {
-  if (!target || /[^\w.@-]/.test(target)) throw new Error(`bad ssh target: ${target}`);
+  // The first char must not be '-': a leading-dash target (e.g. -oProxyCommand=…)
+  // is parsed by ssh as an option before the '--' separator, which would run
+  // arbitrary local commands via ProxyCommand/LocalCommand.
+  if (!target || !/^[\w.@][\w.@-]*$/.test(target)) throw new Error(`bad ssh target: ${target}`);
   const r = spawnSync("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", target, "--", command], {
     encoding: "utf8",
     timeout: timeoutMs,
