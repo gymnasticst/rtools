@@ -267,6 +267,8 @@ export async function startREPL(ctx) {
 
   // ask_user tool hook: pause the spinner, ask through the TUI, resume
   let currentSpinner = null;
+  // abort controller of the running turn; Esc/interrupt aborts via it
+  let currentAbort = null;
   builtinTools._askUser = async (questions) => {
     currentSpinner?.stop();
     const out = [];
@@ -297,7 +299,7 @@ export async function startREPL(ctx) {
         provider: ctx.provider,
         apiKey: ctx.apiKey,
         model,
-        messages: autoCompact({ messages, model, warnAt: 0.8, compactAt: 0.92 }).messages,
+        messages: (autoCompact(), messages),
         tools: ctx.tools,
         approval,
         sandbox,

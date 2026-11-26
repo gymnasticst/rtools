@@ -14,6 +14,8 @@ const C = {
 // Plain mode: no ANSI at all (NO_COLOR env, non-TTY, or theme = "plain" in config).
 export const plain = Boolean(process.env.NO_COLOR) || process.stdout.isTTY === false;
 
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
 export function theme(cfg = {}) {
   if (cfg.theme === "plain" || (plain && !cfg.color)) {
     return Object.fromEntries(Object.keys(C).map((k) => [k, (s) => String(s)]));
