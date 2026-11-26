@@ -3,7 +3,7 @@
 RTools — CLI-агент для программирования (команда `rt`; `rtools` работает как алиас): интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
 [![CI](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml/badge.svg)](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.1.31-blue)
+![Version](https://img.shields.io/badge/version-0.1.32-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-blue)
 
 ## Содержание
@@ -237,6 +237,8 @@ CI (`.github/workflows/ci.yml`) гоняет `npm test` на каждый push �
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## История версий
+
+- `v0.1.32` — Сетка TUI как в OpenCode: большой центрированный блочный логотип, поле ввода с синей полосой и строкой Build · модель, подсказки справа, строка Tip, сайдбар-блок (Context, токены, путь, версия) после баннера и после каждого хода (2026-11-26)
 
 - `v0.1.31` — Убран заглушающий || true у git push в авто-релизе: если пуш не пройдёт, шаг должен упасть и показать причину (2026-11-26)
 
