@@ -4,9 +4,9 @@ import path from "node:path";
 import { parseTOML, stringifyTOML } from "./toml.js";
 
 export const BUILTIN_PROVIDERS = {
-  // Default provider: keyless free tier (models ending in "-free" need no key
-  // or account); paid models need a Zen key (override with
-  // [model_providers.zen] env_key = "ZEN_API_KEY").
+  // Default provider: fully keyless (no env_key is set, so getApiKey returns
+  // null for every model and no key is ever required; add
+  // [model_providers.zen] env_key = "..." yourself if your endpoint needs one).
   zen: {
     name: "OpenCode Zen (free)",
     base_url: "https://opencode.ai/zen/v1",
