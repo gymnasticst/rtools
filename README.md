@@ -3,7 +3,7 @@
 RTools — CLI-агент для программирования (команда `rt`; `rtools` работает как алиас): интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
 [![CI](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml/badge.svg)](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.1.23-blue)
+![Version](https://img.shields.io/badge/version-0.1.24-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-blue)
 
 ## Содержание
@@ -237,6 +237,8 @@ CI (`.github/workflows/ci.yml`) гоняет `npm test` на каждый push �
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## История версий
+
+- `v0.1.24` — Убираем конфликтные маркеры из package.json и package-lock.json, оставшиеся после rebase (ломали npm test и автосборку релиза) (2026-11-26)
 
 - `v0.1.23` — Поднимаем Node в CI до 24: пресет context-mode требует Node >= 24.15.0, на Node 22 автотест честно писал 'skipped' вместо 'already installed' и релиз падал (2026-11-26)
 
