@@ -30,6 +30,7 @@ jobs:
             mv "release/rtools-${VERSION}.tgz" "release/rtools-v${VERSION}.tgz"
           fi
           sha256sum release/*.tgz > release/SHASUMS256.txt
+          sed -i 's#  release/#  #' release/SHASUMS256.txt
       - name: GitHub Release
         uses: softprops/action-gh-release@v3
         with:

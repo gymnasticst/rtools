@@ -12,13 +12,15 @@ export function sha256File(p) {
 }
 
 // Verify a sha256sum-style SHASUMS256.txt ("<hex>  <filename>") against the
-// artifact's actual digest. Throws when there is no entry for the filename or
-// the digest differs, so a tampered artifact never gets installed.
+// artifact's actual digest. Paths are compared by basename so entries written
+// from a subdirectory (e.g. "release/rtools-vX.tgz" in older releases) match.
+// Throws when there is no entry for the filename or the digest differs, so a
+// tampered artifact never gets installed.
 export function verifyShasums(shasums, filename, actualDigest) {
   const entry = shasums
     .split("\n")
     .map((l) => l.trim())
-    .find((l) => /^[0-9a-f]{64}\s+\S+$/.test(l) && l.split(/\s+/).pop() === filename);
+    .find((l) => /^[0-9a-f]{64}\s+\S+$/.test(l) && path.basename(l.split(/\s+/).pop()) === path.basename(filename));
   if (!entry) throw new Error(`no checksum entry for ${filename} in SHASUMS256.txt`);
   const expected = entry.split(/\s+/)[0];
   if (expected !== actualDigest) throw new Error(`checksum mismatch for ${filename}: expected ${expected}, got ${actualDigest}`);

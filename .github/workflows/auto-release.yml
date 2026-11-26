@@ -72,6 +72,7 @@ jobs:
           npm pack --pack-destination release/
           mv "release/rtools-${NEXT#v}.tgz" "release/rtools-${NEXT}.tgz"
           sha256sum release/*.tgz > release/SHASUMS256.txt
+          sed -i 's#  release/#  #' release/SHASUMS256.txt
 
       - name: Build release notes
         env:

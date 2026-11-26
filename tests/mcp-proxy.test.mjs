@@ -164,6 +164,9 @@ if (failures === 0) {
   };
   try { verifyShasums(good, "rtools-v0.1.1.tgz", sha256File(tgz)); }
   catch (e) { console.error(`FAIL: valid artifact rejected: ${e.message}`); failures++; }
+  // regression: release SHASUMS256.txt used to carry a "release/" path prefix
+  try { verifyShasums(`${digest}  release/rtools-v0.1.1.tgz\n`, "rtools-v0.1.1.tgz", sha256File(tgz)); }
+  catch (e) { console.error(`FAIL: shasums entry with directory prefix rejected: ${e.message}`); failures++; }
   expectThrow("tampered artifact accepted", () => verifyShasums("0".repeat(64) + "  rtools-v0.1.1.tgz\n", "rtools-v0.1.1.tgz", sha256File(tgz)));
   expectThrow("missing shasums entry accepted", () => verifyShasums(good, "other.tgz", sha256File(tgz)));
   expectThrow("mismatched digest accepted", () => verifyShasums(good, "rtools-v0.1.1.tgz", "f".repeat(64)));
