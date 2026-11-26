@@ -41,9 +41,10 @@ export function getSetting(cfg, id) {
 // assigning them pollutes Object.prototype.
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-// defineProperty creates an own property and never touches [[Prototype]],
-// so even a forbidden key cannot pollute Object.prototype.
+// defineProperty creates an own property and never touches [[Prototype]].
+// The explicit key comparison is the guard CodeQL recognises at the sink.
 function safeSet(obj, k, v) {
+  if (k === "__proto__" || k === "constructor" || k === "prototype") return v;
   Object.defineProperty(obj, k, { value: v, writable: true, enumerable: true, configurable: true });
   return v;
 }
@@ -55,7 +56,7 @@ export function setSettingPatch(id, value) {
   let node = patch;
   for (let i = 0; i < keys.length - 1; i++) {
     const k = keys[i];
-    if (FORBIDDEN_KEYS.has(k)) return {};
+    if (k === "__proto__" || k === "constructor" || k === "prototype") return {};
     if (!Object.hasOwn(node, k)) safeSet(node, k, {});
     node = node[k];
   }
@@ -65,10 +66,12 @@ export function setSettingPatch(id, value) {
   return patch;
 }
 
-// Mutate a live config object with a nested patch.
+// Mutate a live config object with a nested patch. Recursion only follows
+// own properties of the destination (the CodeQL-recommended guard), so a
+// forbidden key can never route the walk onto Object.prototype.
 export function applyPatch(target, patch) {
   for (const [k, v] of Object.entries(patch)) {
-    if (FORBIDDEN_KEYS.has(k)) continue;
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
     if (v && typeof v === "object" && !Array.isArray(v)) {
       if (!Object.hasOwn(target, k) || typeof target[k] !== "object" || target[k] === null) safeSet(target, k, {});
       applyPatch(target[k], v);

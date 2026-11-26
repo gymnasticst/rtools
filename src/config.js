@@ -46,15 +46,17 @@ export const RTOOLS_HOME = () => path.join(os.homedir(), ".rtools");
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 // defineProperty creates an own property and never touches [[Prototype]].
+// The explicit key comparison is the guard CodeQL recognises at the sink.
 function safeSet(obj, k, v) {
+  if (k === "__proto__" || k === "constructor" || k === "prototype") return v;
   Object.defineProperty(obj, k, { value: v, writable: true, enumerable: true, configurable: true });
   return v;
 }
 
 function deepMerge(target, src) {
   for (const [k, v] of Object.entries(src)) {
-    if (FORBIDDEN_KEYS.has(k)) continue;
-    if (v && typeof v === "object" && !Array.isArray(v) && typeof target[k] === "object" && target[k] !== null && !Array.isArray(target[k])) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+    if (v && typeof v === "object" && !Array.isArray(v) && Object.hasOwn(target, k) && typeof target[k] === "object" && target[k] !== null && !Array.isArray(target[k])) {
       deepMerge(target[k], v);
     } else {
       safeSet(target, k, v);

@@ -72,6 +72,18 @@ try {
   ok("saveConfig with __proto__ key does not pollute Object.prototype");
 } catch (e) { fail("prototype pollution", e); }
 
+// --- 3b. nested __proto__ in a patch must not route the walk onto Object.prototype
+try {
+  const { applyPatch } = await import("../src/settings-schema.js");
+  const target = { model: "x" };
+  applyPatch(target, JSON.parse('{"__proto__": {"polluted": "yes"}}'));
+  assert.strictEqual(({}).polluted, undefined);
+  assert.strictEqual(target.model, "x");
+  applyPatch(target, JSON.parse('{"tools": {"__proto__": {"polluted": "yes"}}}'));
+  assert.strictEqual(({}).polluted, undefined);
+  ok("applyPatch with nested __proto__ value cannot reach Object.prototype");
+} catch (e) { fail("nested prototype pollution", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 
 if (failures) {
