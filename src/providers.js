@@ -249,7 +249,10 @@ async function streamAnthropic({ provider, apiKey, model, messages, tools, onTex
 // List model ids from an OpenAI-compatible /models or Anthropic /v1/models endpoint.
 export async function listModels({ provider, apiKey }) {
   const pathPart = provider.wire_api === "anthropic" ? "/v1/models" : "/models";
-  const res = await fetch(buildUrl(provider, pathPart), { headers: extraHeaders(provider, apiKey) });
+  const headers = provider.wire_api === "anthropic"
+    ? { "content-type": "application/json", "anthropic-version": "2023-06-01", ...(provider.http_headers || {}), ...(apiKey ? { "x-api-key": apiKey } : {}) }
+    : extraHeaders(provider, apiKey);
+  const res = await fetch(buildUrl(provider, pathPart), { headers });
   if (!res.ok) throw new Error(`Provider HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const items = data.data || data.models || [];
