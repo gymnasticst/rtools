@@ -1,7 +1,8 @@
 name: Auto release
 
-# Каждый пуш в main: тесты -> бамп patch-версии -> обновление
-# install.sh и README -> тег vX.Y.Z -> GitHub Release с тарболом.
+# Каждый пуш в main: тесты -> версия берётся из package.json
+# (её поднимает автор перед пушем) -> синхронизация install.sh и README
+# -> тег vX.Y.Z -> GitHub Release с тарболом.
 # Собственный коммит помечен [skip ci], чтобы не зациклиться.
 
 on:
@@ -28,26 +29,23 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Compute next version
+      - name: Take version from package.json
         id: ver
         run: |
-          LAST="$(git tag --list 'v*' --sort=-v:refname | head -1)"
-          if [ -z "$LAST" ]; then
-            LAST="v$(node -p "require('./package.json').version")"
+          NEXT="v$(node -p "require('./package.json').version")"
+          if git rev-parse "$NEXT" >/dev/null 2>&1; then
+            echo "Tag $NEXT already exists — nothing to release"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "next=$NEXT" >> "$GITHUB_OUTPUT"
           fi
-          BASE="${LAST#v}"
-          MAJOR="${BASE%%.*}"
-          PATCH="${BASE##*.}"
-          NEXT="v${MAJOR}.$(echo "$BASE" | cut -d. -f2).$((PATCH + 1))"
-          echo "last=$LAST next=$NEXT" | tee version.log
-          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
 
-      - name: Bump version in package.json, install.sh, README
+      - name: Sync version in install.sh, README
+        if: steps.ver.outputs.skip != 'true'
         env:
           NEXT: ${{ steps.ver.outputs.next }}
           SUBJECT: ${{ github.event.head_commit.message }}
         run: |
-          npm version --no-git-tag-version --allow-same-version "$NEXT"
           sed -i "s/^DEFAULT_VERSION=.*/DEFAULT_VERSION=\"${NEXT}\"/" install.sh
           sed -i "s/version-[0-9][0-9.]*-blue/version-${NEXT#v}-blue/" README.md
           SUBJECT="$(printf '%s' "$SUBJECT" | head -1)"
@@ -57,14 +55,16 @@ jobs:
           ' README.md > README.md.tmp && mv README.md.tmp README.md
 
       - name: Commit and push
+        if: steps.ver.outputs.skip != 'true'
         run: |
           git config user.name "rtools-release-bot"
           git config user.email "actions@users.noreply.github.com"
           git add package.json package-lock.json install.sh README.md
-          git commit -m "${{ steps.ver.outputs.next }} release [skip ci]"
-          git push origin main
+          git commit -m "${{ steps.ver.outputs.next }} release [skip ci]" || echo "nothing to commit"
+          git push origin main || true
 
       - name: Package tarball
+        if: steps.ver.outputs.skip != 'true'
         env:
           NEXT: ${{ steps.ver.outputs.next }}
         run: |
@@ -75,6 +75,7 @@ jobs:
           sed -i 's#  release/#  #' release/SHASUMS256.txt
 
       - name: Build release notes
+        if: steps.ver.outputs.skip != 'true'
         env:
           NEXT: ${{ steps.ver.outputs.next }}
         run: |
@@ -95,6 +96,7 @@ jobs:
           cat release-notes.md
 
       - name: Create GitHub Release
+        if: steps.ver.outputs.skip != 'true'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.ver.outputs.next }}
@@ -106,6 +108,7 @@ jobs:
             release/SHASUMS256.txt
 
       - name: npm publish (only if NPM_TOKEN is set)
+        if: steps.ver.outputs.skip != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
