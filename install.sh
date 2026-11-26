@@ -23,6 +23,17 @@ done
 
 say() { printf '\n  %s\n' "$1"; }
 
+# Interactive progress: [####    ] step (i/N)
+TOTAL_STEPS=6
+STEP=0
+step() {
+  STEP=$((STEP + 1))
+  DONE=$((STEP * 8 / TOTAL_STEPS))
+  BAR=""
+  i=0; while [ $i -lt 8 ]; do [ $i -lt $DONE ] && BAR="$BAR#" || BAR="$BAR."; i=$((i + 1)); done
+  printf '\r  [%s] %d/%d  %s\033[K\n' "$BAR" "$STEP" "$TOTAL_STEPS" "$1"
+}
+
 command -v node >/dev/null 2>&1 || { echo "error: Node.js >= 22 is required (https://nodejs.org)"; exit 1; }
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$NODE_MAJOR" -ge 22 ] || { echo "error: Node.js >= 22 required, found $(node --version)"; exit 1; }
@@ -62,12 +73,15 @@ if [ -z "${SRC:-}" ]; then
   tar -xzf "$TMP/rtools.tgz" -C "$TMP/unpack"
   SRC="$(find "$TMP/unpack" -maxdepth 2 -name package.json | head -1 | xargs dirname)"
 fi
+step "downloaded ${VERSION}"
 
 mkdir -p "$PREFIX"
 # rtools is dependency-free Node — copy bin/ + src/ + package.json and add launchers.
 cp -r "$SRC/bin" "$SRC/src" "$TMP/pkg" 2>/dev/null || { mkdir -p "$TMP/pkg"; cp -r "$SRC/bin" "$SRC/src" "$TMP/pkg/"; }
 cp "$SRC/package.json" "$TMP/pkg/"
+step "files prepared"
 cp -r "$TMP/pkg" "$PREFIX/lib-rtools" 2>/dev/null || { rm -rf "$PREFIX/lib-rtools"; cp -r "$TMP/pkg" "$PREFIX/lib-rtools"; }
+step "installed to ${PREFIX}/lib-rtools"
 cat > "$PREFIX/rt" <<LAUNCHER
 #!/bin/sh
 exec node "$PREFIX/lib-rtools/bin/rtools.js" "\$@"
@@ -78,13 +92,17 @@ cat > "$PREFIX/rtools" <<LAUNCHER
 exec node "$PREFIX/lib-rtools/bin/rtools.js" "\$@"
 LAUNCHER
 chmod +x "$PREFIX/rtools"
+step "launchers rt + rtools"
 
 case ":$PATH:" in
   *":$PREFIX:"*) ;;
   *)
+    step "PATH check"
     say "NOTE: $PREFIX is not in PATH. Add it:"
     printf '  echo %s >> ~/.bashrc  (or your shell profile)\n' "\"export PATH=\$PATH:$PREFIX\""
     ;;
 esac
 
-say "Done. Verify: $(command -v "$PREFIX/rt" >/dev/null && true)$(rt --version 2>/dev/null || "$PREFIX/rt" --version)"
+"$PREFIX/rt" --version >/dev/null 2>&1 || true
+step "done — run: rt"
+say "Welcome! Start with: rt  (then /setup inside the TUI for a guided walkthrough)"

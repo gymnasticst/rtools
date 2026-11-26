@@ -32,6 +32,7 @@ import { parseDroppedFiles } from "./attach.js";
 import { createUsage, addUsage, formatUsage } from "./usage.js";
 import { gitStatus, copyToClipboard, statusBar } from "./tui.js";
 import { banner, Spinner, toolNotice, turnStart, mdStreamer } from "./tui.js";
+import { isFirstRun, runSetupWizard } from "./welcome.js";
 
 const HELP = `Commands:
   /help            show this help
@@ -82,7 +83,7 @@ export async function startREPL(ctx) {
     "/init", "/review", "/permissions", "/plan", "/prompts", "/tools", "/skills",
     "/status", "/diff", "/compact", "/resume", "/settings", "/effort", "/verbosity",
     "/model", "/provider", "/agent", "/clear", "/quit", "/palette",
-    "/usage", "/jobs", "/undo", "/checkpoints", "/trace", "/copy", "/find", "/paste", "/edit",
+    "/usage", "/jobs", "/undo", "/checkpoints", "/trace", "/copy", "/find", "/paste", "/edit", "/setup",
   ];
   const completer = (line) => {
     const hits = SLASH_COMMANDS.filter((c) => c.startsWith(line));
@@ -179,6 +180,21 @@ export async function startREPL(ctx) {
 
   banner({ version: "0.1.0", model, effort, provider: ctx.provider.id, cwd: ctx.cwd });
   console.log(statusBarLine());
+
+  // First run: interactive welcome + setup wizard (provider, policy, key).
+  const setupWizard = async (version) => {
+    const summary = await runSetupWizard({ version, nextLine });
+    if (summary) console.log(`setup complete:\n  ${summary}`);
+    else console.log("setup skipped — /setup runs it any time");
+    // reload config so the choices take effect in this session
+    const fresh = await import("./config.js");
+    Object.assign(cfg, fresh.loadConfig());
+  };
+  if (isFirstRun() && !process.env.RTOOLS_NO_SETUP) {
+    await setupWizard("0.1.0");
+    banner({ version: "0.1.0", model, effort, provider: ctx.provider.id, cwd: ctx.cwd });
+    console.log(statusBarLine());
+  }
 
   let planMode = false;
   let planModeToggled = false;
@@ -408,6 +424,7 @@ export async function startREPL(ctx) {
     ["/copy", "copy last answer"],
     ["/find", "search transcript"],
     ["/paste", "paste multi-line input"],
+    ["/setup", "interactive setup wizard (provider, policy, key)"],
     ["/edit", "compose in $EDITOR"],
     ["/files", "browse files & directories"],
     ["/terminal", "run shell commands in a panel"],
@@ -1148,6 +1165,10 @@ export async function startREPL(ctx) {
             });
             console.log(hits.slice(-20).join("\n") || "no matches");
           }
+          continue;
+        }
+        case "/setup": {
+          await setupWizard("0.1.0");
           continue;
         }
         case "/paste": {
