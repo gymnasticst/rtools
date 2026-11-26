@@ -1,5 +1,7 @@
-// TUI in the Codex style: rounded banner, live status bar, spinner,
-// streamed assistant text, inline tool notices. Terminal-only (ANSI).
+// TUI helpers in the OpenCode style: full-screen home banner (centered block
+// logo, composer input with a blue accent bar), right-aligned session sidebar,
+// live status bar, spinner, streamed assistant text, inline tool notices.
+// Terminal-only (ANSI).
 import { execSync, execFileSync } from "node:child_process";
 
 const C = {
@@ -12,7 +14,8 @@ const C = {
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
 };
 
-// Plain mode: no ANSI at all (NO_COLOR env, non-TTY, or theme = "plain" in config).
+// Plain mode: no ANSI at all. This flag covers NO_COLOR env and non-TTY;
+// theme = "plain" in config is handled in theme() below.
 export const plain = Boolean(process.env.NO_COLOR) || process.stdout.isTTY === false;
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
