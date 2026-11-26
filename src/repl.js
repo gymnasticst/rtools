@@ -650,7 +650,7 @@ export async function startREPL(ctx) {
     if (line === PALETTE_TICK) continue;
     const input = line.trim();
     if (!input) continue;
-    if (input === "?" || input === "/") {
+    if (input === "/") {
       console.log(HELP);
       continue;
     }
@@ -684,6 +684,40 @@ export async function startREPL(ctx) {
         await persist();
       } catch (e) {
         console.log(`error: ${e.message}`);
+      }
+      continue;
+    }
+
+    // OpenCode behavior: "!" at the start runs a shell command in place,
+    // "?" alone opens the shortcuts popup.
+    if (input === "?") {
+      const { box } = await import("./tui.js");
+      console.log(box([
+        "Shortcuts",
+        "",
+        "enter        send prompt",
+        "ctrl+c       interrupt current step",
+        "ctrl+p       command palette",
+        "ctrl+o       settings",
+        "ctrl+g       compose in $EDITOR",
+        "ctrl+l       clear screen",
+        "!cmd         run shell command",
+        "@file        attach a file",
+        "/models      pick a model",
+        "/new         new session",
+        "/sessions    resume a session",
+        "/undo /redo  undo or redo changes",
+        "/quit        exit",
+      ].map((l) => " " + l)));
+      continue;
+    }
+    if (input.startsWith("!") && !input.startsWith("!!")) {
+      const shellCmd = input.slice(1).trim();
+      if (shellCmd) {
+        const { execSync } = await import("node:child_process");
+        try { execSync(shellCmd, { stdio: "inherit", cwd: ctx.cwd }); } catch (e) {
+          console.log(`error: ${e.message}`);
+        }
       }
       continue;
     }

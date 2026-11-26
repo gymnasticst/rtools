@@ -70,36 +70,40 @@ export function animateLines(lines, { delay = 24 } = {}) {
   });
 }
 
-// Shared banner frame builder: the width fits the longest row, but hint text
-// is capped so a long model id cannot stretch the frame past the terminal.
-function bannerLines({ version, model, effort, provider, cwd }) {
-  const cap = (s, n) => {
-    const plainLen = s.replace(/\x1b\[[0-9;]*m/g, "").length;
-    return plainLen <= n ? s : s.replace(/\x1b\[[0-9;]*m/g, "").slice(0, n - 1) + "…";
-  };
-  const rows = [
-    `${C.bold(">_ RTools")}${C.gray(` (v${version})`)}`,
-    "",
-    cap(`model:     ${model} ${effort}`, 46),
-    `provider:  ${provider}`,
-    `directory: ${shorten(cwd)}`,
+// OpenCode-style home screen: ASCII logo left, session info right, and a
+// hint footer — no framed box (OpenCode uses no box around the header).
+function asciiLogo() {
+  return [
+    " ██████╗ ██████╗ ",
+    " ██╔══██╗██╔══██╗",
+    " ██████╔╝██████╔╝",
+    " ██╔══██╗██╔═══╝ ",
+    " ██║  ██║██║     ",
+    " ╚═╝  ╚═╝╚═╝     ",
   ];
-  const w = Math.min(Math.max(...rows.map((r) => r.replace(/\x1b\[[0-9;]*m/g, "").length)) + 4, termWidth());
-  const top = "╭" + "─".repeat(w - 2) + "╮";
-  const bot = "╰" + "─".repeat(w - 2) + "╯";
-  const row = (s) => C.cyan("│" + s + " ".repeat(Math.max(0, w - 2 - s.replace(/\x1b\[[0-9;]*m/g, "").length)) + "│");
-  return ["", C.cyan(top), ...rows.map((r) => row(" " + r)), C.cyan(bot), ""];
+}
+
+function bannerLines({ version, model, effort, provider, cwd }) {
+  const logo = asciiLogo();
+  const info = [
+    C.bold("RTools") + C.gray(` v${version}`),
+    "",
+    C.gray("model:    ") + model + C.gray(` (${effort})`),
+    C.gray("provider: ") + provider,
+    C.gray("dir:      ") + shorten(cwd),
+  ];
+  const rows = [];
+  const height = Math.max(logo.length, info.length);
+  for (let i = 0; i < height; i++) {
+    rows.push((logo[i] || "").padEnd(18) + (info[i] || ""));
+  }
+  return ["", ...rows.map((r) => "  " + r), ""];
 }
 
 function hintsLines() {
   return [
-    "  To get started, describe a task or try one of these commands:",
-    "",
-    C.gray("  /init - create an AGENTS.md file with instructions for RTools"),
-    C.gray("  /status - show current session configuration"),
-    C.gray("  /permissions - choose what RTools is allowed to do"),
-    C.gray("  /model - choose what model and reasoning effort to use"),
-    C.gray("  /review - review any changes and find issues"),
+    C.gray("  type a task · @file attach · ! shell · / commands · ctrl+p palette"),
+    C.gray("  ? shortcuts · ctrl+x leader (ctrl+x m models, ctrl+x n new session)"),
     "",
   ];
 }
