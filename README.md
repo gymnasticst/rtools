@@ -2,9 +2,10 @@
 
 RTools — CLI-агент для программирования (команда `rt`; `rtools` работает как алиас): интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
-[![CI](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml/badge.svg)](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-0.1.38-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-blue)
+![License](https://img.shields.io/badge/license-Apache--2.0-green)
+[![Release](https://img.shields.io/github/v/release/gymnasticst/rtools?label=release)](https://github.com/gymnasticst/rtools/releases)
 
 ## Содержание
 
