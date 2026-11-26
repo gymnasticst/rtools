@@ -50,6 +50,10 @@ export function parseDroppedFiles(input, cwd) {
     if (isFile) seen.add(abs);
     if (!isFile || repeat) continue; // ordinary words stay in the prompt untouched
     const rel = path.relative(cwd, abs) || abs;
+    // Text between this token and the previous handled one belongs in the
+    // prompt no matter how this token itself is handled (image, skipped or
+    // inlined) — otherwise words like "explain a.png then b.png" lose "then".
+    prompt += input.slice(last, m.index);
     if (IMAGE_EXT.test(abs)) {
       const size = statSync(abs).size;
       if (size > IMAGE_MAX) {
@@ -65,7 +69,7 @@ export function parseDroppedFiles(input, cwd) {
       } else {
         const body = buf.toString("utf8").slice(0, TEXT_MAX);
         attachments.push({ path: abs, rel, text: true });
-        prompt += input.slice(last, m.index) + `\n--- file: ${rel} ---\n${body}\n--- end of ${rel} ---\n`;
+        prompt += `\n--- file: ${rel} ---\n${body}\n--- end of ${rel} ---\n`;
         notices.push(`attached: @${rel}`);
       }
     }

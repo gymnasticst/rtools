@@ -459,6 +459,63 @@ try {
   ok("lsp framing delivers a response body split across two chunks");
 } catch (e) { fail("lsp split body framing", e); }
 
+// --- 16. listModels uses x-api-key (not Bearer) for anthropic wire_api ---
+try {
+  const { listModels } = await import("../src/providers.js");
+
+  const calls = [];
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), headers: init?.headers || {} });
+    return { ok: true, status: 200, json: async () => ({ data: [{ id: "claude-x" }] }) };
+  };
+  try {
+    const anthropic = { name: "a", base_url: "https://api.anthropic.test", wire_api: "anthropic" };
+    const models = await listModels({ provider: anthropic, apiKey: "sk-ant-1" });
+    assert.deepStrictEqual(models, ["claude-x"]);
+    const ac = calls[0];
+    assert.ok(ac.url === "https://api.anthropic.test/v1/models", `anthropic listModels must hit /v1/models, got ${ac.url}`);
+    assert.strictEqual(ac.headers["x-api-key"], "sk-ant-1", "anthropic providers must authenticate with x-api-key");
+    assert.strictEqual(ac.headers["anthropic-version"], "2023-06-01", "anthropic requests need anthropic-version");
+    assert.strictEqual(ac.headers.authorization, undefined, "the API key must not leak as a Bearer header to an anthropic provider");
+
+    const openai = { name: "o", base_url: "https://api.openai.test/v1", wire_api: "chat" };
+    await listModels({ provider: openai, apiKey: "sk-oa-1" });
+    const oc = calls[1];
+    assert.ok(oc.url === "https://api.openai.test/v1/models", `openai listModels must hit /models, got ${oc.url}`);
+    assert.strictEqual(oc.headers.authorization, "Bearer sk-oa-1", "openai-style providers keep Bearer auth");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+  ok("listModels authenticates anthropic providers with x-api-key and openai ones with Bearer");
+} catch (e) { fail("listModels anthropic auth headers", e); }
+
+// --- 17. text between dropped file references survives image/skipped files ----
+try {
+  const { parseDroppedFiles } = await import("../src/attach.js");
+
+  const cwd = mkdtempSync(path.join(home, "attach-"));
+  writeFileSync(path.join(cwd, "a.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]));
+  writeFileSync(path.join(cwd, "data.bin"), Buffer.from([0x00, 0x01, 0x02]));
+  writeFileSync(path.join(cwd, "note.txt"), "hello", "utf8");
+
+  const { prompt, attachments, notices } = parseDroppedFiles(
+    "explain a.png then data.bin and note.txt please",
+    cwd,
+  );
+
+  for (const word of ["explain", "then", "and", "please"]) {
+    assert.ok(prompt.includes(word), `prompt must keep the word '${word}' between file refs, got: ${JSON.stringify(prompt)}`);
+  }
+  assert.ok(prompt.includes("--- file: note.txt ---"), "text file must still be inlined into the prompt");
+  assert.ok(attachments.some((a) => a.rel === "a.png" && a.media_type === "image/png"), "image must still be attached as image part");
+  assert.ok(attachments.some((a) => a.rel === "note.txt" && a.text), "text file must still be attached as text");
+  assert.ok(notices.some((n) => n.includes("data.bin") && n.includes("binary")), "binary file must still be reported as skipped");
+
+  try { rmSync(cwd, { recursive: true, force: true }); } catch {}
+  ok("text between dropped file references survives images and skipped files");
+} catch (e) { fail("attach text between file refs", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 
 if (failures) {
