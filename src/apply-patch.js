@@ -49,6 +49,10 @@ function matchLine(content, index, text) {
 
 function applyUpdate(content, chunks) {
   const contentLines = content.split("\n");
+  // Prefer matches at/after the previous chunk so identical context blocks
+  // (repeated case arms, duplicated stubs) edit the occurrence the patch
+  // reached, not always the first one in the file.
+  let searchFrom = 0;
   for (const chunk of chunks) {
     const ctxLines = chunk.lines.filter((l) => l.startsWith(" ") || l.startsWith("-"));
     const find = ctxLines.length
@@ -60,12 +64,15 @@ function applyUpdate(content, chunks) {
       continue;
     }
     let at = -1;
-    outer: for (let i = 0; i <= contentLines.length - find.length; i++) {
-      for (let j = 0; j < find.length; j++) {
-        if (contentLines[i + j] !== find[j]) continue outer;
+    for (const from of [searchFrom, 0]) {
+      outer: for (let i = from; i <= contentLines.length - find.length; i++) {
+        for (let j = 0; j < find.length; j++) {
+          if (contentLines[i + j] !== find[j]) continue outer;
+        }
+        at = i;
+        break;
       }
-      at = i;
-      break;
+      if (at !== -1) break;
     }
     if (at === -1) throw new Error(`context not found: ${find[0].slice(0, 60)}`);
     const replacements = [];
@@ -75,6 +82,7 @@ function applyUpdate(content, chunks) {
       else replacements.push(l.slice(1));
     }
     contentLines.splice(at, find.length, ...replacements);
+    searchFrom = at + replacements.length;
   }
   return contentLines.join("\n");
 }
@@ -100,7 +108,10 @@ export function applyPatchTool({ cwd }) {
     },
     handler: async ({ patch }) => {
       const hunks = parsePatch(patch);
-      const results = [];
+      // Two-phase apply: containment-check and compute every hunk against the
+      // current files first, then write. A failure in hunk 3 no longer leaves
+      // hunks 1-2 already on disk (a model retry would patch a half-applied tree).
+      const plan = [];
       for (const hunk of hunks) {
         const abs = path.resolve(cwd, hunk.path);
         // containment: relative path must stay inside cwd (catches ../ and
@@ -108,21 +119,25 @@ export function applyPatchTool({ cwd }) {
         const rel = path.relative(path.resolve(cwd), abs);
         if (rel.startsWith("..") || path.isAbsolute(rel)) throw new Error(`path escapes working directory: ${hunk.path}`);
         if (hunk.type === "add") {
-          await mkdir(path.dirname(abs), { recursive: true });
-          await writeFile(abs, hunk.lines.map((l) => (l.startsWith("+") ? l.slice(1) : l)).join("\n"), "utf8");
-          results.push(`A ${hunk.path}`);
+          plan.push({ abs, write: hunk.lines.map((l) => (l.startsWith("+") ? l.slice(1) : l)).join("\n"), label: `A ${hunk.path}` });
         } else if (hunk.type === "delete") {
-          await rm(abs);
-          results.push(`D ${hunk.path}`);
+          plan.push({ rm: abs, label: `D ${hunk.path}` });
         } else {
           const before = await readFile(abs, "utf8");
           const after = applyUpdate(before, hunk.chunks);
-          if (after === before) results.push(`(no change) ${hunk.path}`);
-          else {
-            await writeFile(abs, after, "utf8");
-            results.push(`M ${hunk.path}`);
-          }
+          if (after === before) plan.push({ label: `(no change) ${hunk.path}` });
+          else plan.push({ abs, write: after, label: `M ${hunk.path}` });
         }
+      }
+      const results = [];
+      for (const op of plan) {
+        if (op.rm !== undefined) {
+          await rm(op.rm);
+        } else if (op.write !== undefined) {
+          await mkdir(path.dirname(op.abs), { recursive: true });
+          await writeFile(op.abs, op.write, "utf8");
+        }
+        results.push(op.label);
       }
       return `success. Updated files:\n${results.join("\n")}`;
     },

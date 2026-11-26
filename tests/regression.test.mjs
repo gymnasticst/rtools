@@ -84,6 +84,121 @@ try {
   ok("applyPatch with nested __proto__ value cannot reach Object.prototype");
 } catch (e) { fail("nested prototype pollution", e); }
 
+// --- 4. saveConfig must not wipe a malformed config ----------------------
+try {
+  const { saveConfig } = await import("../src/config.js");
+  const broken = path.join(home, "broken.toml");
+  writeFileSync(broken, "this is [ not valid toml", "utf8");
+  let threw = null;
+  try {
+    saveConfig({ model: "x" }, { configPath: broken });
+  } catch (e) { threw = e; }
+  assert.ok(threw, "saveConfig must throw on a malformed config");
+  assert.ok(threw.message.includes("not valid TOML"), `error must name the problem: ${threw.message}`);
+  assert.strictEqual(readFileSync(broken, "utf8"), "this is [ not valid toml", "malformed config must be left untouched");
+  ok("saveConfig throws on malformed config instead of wiping it");
+} catch (e) { fail("saveConfig malformed config", e); }
+
+// --- 5. apply_patch edits the occurrence the patch reached, not the first match
+try {
+  const { applyPatchTool } = await import("../src/apply-patch.js");
+  const cwd = mkdtempSync(path.join(home, "dup-"));
+  const file = path.join(cwd, "dup.txt");
+  writeFileSync(file, "case a:\n  return 1;\ncase b:\n  return 1;\n", "utf8");
+  const patch =
+    "*** Begin Patch\n" +
+    "*** Update File: dup.txt\n" +
+    "@@\n" +
+    " case b:\n" +
+    "-  return 20;\n" +
+    "+  return 2;\n" +
+    "*** End Patch\n";
+  const tool = applyPatchTool({ cwd });
+  // chunk context "case b:\n  return 1;" is unique here; the moving cursor is
+  // exercised by the second chunk of a two-chunk patch over identical context
+  const patch2 =
+    "*** Begin Patch\n" +
+    "*** Update File: dup.txt\n" +
+    "@@\n" +
+    "-  return 1;\n" +
+    "+  return 10;\n" +
+    "@@\n" +
+    "-  return 1;\n" +
+    "+  return 20;\n" +
+    "*** End Patch\n";
+  writeFileSync(file, "case a:\n  return 1;\ncase b:\n  return 1;\n", "utf8");
+  await tool.handler({ patch: patch2 });
+  assert.strictEqual(readFileSync(file, "utf8"), "case a:\n  return 10;\ncase b:\n  return 20;\n", "identical context blocks must be edited in order, first chunk first");
+  writeFileSync(file, "case a:\n  return 10;\ncase b:\n  return 20;\n", "utf8");
+  await tool.handler({ patch });
+  assert.strictEqual(readFileSync(file, "utf8"), "case a:\n  return 10;\ncase b:\n  return 2;\n", "chunk after earlier edits must match at its own position");
+  ok("apply_patch duplicate context: chunks apply in order via a moving cursor");
+} catch (e) { fail("apply_patch duplicate context", e); }
+
+// --- 6. multi-file patch is atomic: no partial application ----------------
+try {
+  const { applyPatchTool } = await import("../src/apply-patch.js");
+  const cwd = mkdtempSync(path.join(home, "atomic-"));
+  const good = path.join(cwd, "good.txt");
+  writeFileSync(good, "alpha\n", "utf8");
+  const patch =
+    "*** Begin Patch\n" +
+    "*** Update File: good.txt\n" +
+    "@@\n" +
+    "-alpha\n" +
+    "+alpha-edited\n" +
+    "*** Update File: missing.txt\n" +
+    "@@\n" +
+    "-nope\n" +
+    "+nope-edited\n" +
+    "*** End Patch\n";
+  const tool = applyPatchTool({ cwd });
+  await assert.rejects(() => tool.handler({ patch }));
+  assert.strictEqual(readFileSync(good, "utf8"), "alpha\n", "a failing hunk must not leave earlier hunks applied");
+  ok("apply_patch multi-file failure leaves no partially applied tree");
+} catch (e) { fail("apply_patch atomicity", e); }
+
+// --- 7. expired MCP access token is refreshed silently --------------------
+try {
+  const http = await import("node:http");
+  const mkdirSync = (await import("node:fs")).mkdirSync;
+  const { getMcpAccessToken } = await import("../src/mcp-oauth.js");
+  const serverName = "refresh-test";
+  const cachePath = path.join(home, ".rtools", "mcp-auth.json");
+  mkdirSync(path.dirname(cachePath), { recursive: true });
+  writeFileSync(cachePath, JSON.stringify({ [serverName]: { access_token: "stale", refresh_token: "rt-1", expires_at: Date.now() - 1000 } }));
+
+  const grants = [];
+  const srv = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://x");
+    const json = (obj) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
+    if (url.pathname === "/.well-known/oauth-authorization-server") {
+      json({ registration_endpoint: `http://127.0.0.1:${srv.address().port}/register`, token_endpoint: `http://127.0.0.1:${srv.address().port}/token` });
+    } else if (url.pathname === "/register") {
+      json({ client_id: "cli-1" });
+    } else if (url.pathname === "/token") {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        grants.push(Object.fromEntries(new URLSearchParams(body)));
+        json({ access_token: "fresh-1", refresh_token: "rt-2", expires_in: 3600 });
+      });
+    } else { res.writeHead(404).end(); }
+  });
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  try {
+    const token = await getMcpAccessToken(serverName, `http://127.0.0.1:${srv.address().port}`);
+    assert.strictEqual(token, "fresh-1", "refreshed access token must be returned");
+    assert.strictEqual(grants.length, 1, "exactly one token request (the refresh) — no browser flow");
+    assert.strictEqual(grants[0].grant_type, "refresh_token");
+    assert.strictEqual(grants[0].refresh_token, "rt-1");
+    const saved = JSON.parse(readFileSync(cachePath, "utf8"))[serverName];
+    assert.strictEqual(saved.access_token, "fresh-1");
+    assert.strictEqual(saved.refresh_token, "rt-2", "rotated refresh token must be cached");
+  } finally { srv.close(); srv.closeAllConnections?.(); }
+  ok("expired MCP token is refreshed via refresh_token grant without the browser flow");
+} catch (e) { fail("mcp token refresh", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 
 if (failures) {

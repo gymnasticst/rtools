@@ -173,10 +173,48 @@ async function exchangeCode({ metadata, client, code, verifier, serverUrl }) {
   return res.json();
 }
 
+async function refreshTokens({ metadata, client, serverUrl, refreshToken }) {
+  const res = await fetch(metadata.token_endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: client.client_id,
+      resource: serverUrl,
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`token refresh failed: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
 export async function getMcpAccessToken(serverName, serverUrl) {
   const cache = readCache();
   const cached = cache[serverName];
   if (cached?.access_token && cached.expires_at > Date.now() + 60000) return cached.access_token;
+
+  // Access token expired but a refresh token is cached: try a silent refresh
+  // before falling back to the full interactive browser flow.
+  if (cached?.refresh_token) {
+    try {
+      const metadata = await discoverMetadata(serverUrl);
+      const client = await dynamicRegister(metadata, serverUrl);
+      const tokens = await refreshTokens({ metadata, client, serverUrl, refreshToken: cached.refresh_token });
+      if (tokens.access_token) {
+        cache[serverName] = {
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token || cached.refresh_token,
+          expires_at: Date.now() + (tokens.expires_in || 3600) * 1000,
+        };
+        writeCache(cache);
+        return tokens.access_token;
+      }
+    } catch {
+      // refresh failed (rotated/revoked token, offline server) — fall through
+      // to the interactive flow below
+    }
+  }
 
   const metadata = await discoverMetadata(serverUrl);
   const client = await dynamicRegister(metadata, serverUrl);

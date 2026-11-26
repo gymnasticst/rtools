@@ -226,8 +226,10 @@ export function saveConfig(patch, { configPath } = {}) {
   if (existsSync(file)) {
     try {
       current = parseTOML(readFileSync(file, "utf8"));
-    } catch {
-      current = {};
+    } catch (err) {
+      // fail loudly: silently replacing a malformed config would wipe the
+      // providers, MCP servers and profiles it holds
+      throw new Error(`cannot save config: ${file} is not valid TOML (${err.message}) — fix or remove the file, then retry`);
     }
   }
   mergePatch(current, patch);
