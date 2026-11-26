@@ -176,6 +176,38 @@ ok(threwI18n, "i18n: unsupported language rejected");
   ok((await tool.handler({ action: "forget", id })).includes("forgotten"), "memory: tool forget");
 }
 
+// --- memory: atomic saves (regression: crash mid-write must not corrupt memory.json)
+{
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const pathMod = await import("node:path");
+  const { saveMemories, loadMemories } = await import("../src/memory-vector.js");
+  const realHome = process.env.HOME;
+  process.env.HOME = fs.mkdtempSync(pathMod.join(os.tmpdir(), "mem-atomic-"));
+  try {
+    const file = pathMod.join(process.env.HOME, ".rtools", "memory.json");
+    saveMemories([{ id: 1, text: "first", tags: [], created_at: "t" }]);
+    const inode1 = fs.statSync(file).ino;
+    const list2 = [{ id: 1, text: "first", tags: [], created_at: "t" }, { id: 2, text: "second", tags: [], created_at: "t" }];
+    saveMemories(list2);
+    const inode2 = fs.statSync(file).ino;
+    // Old code wrote in place (writeFileSync): the inode never changed and a
+    // crash mid-write left a truncated file. Temp+rename replaces the file,
+    // so the second save must get a fresh inode and full content on disk.
+    ok(inode1 !== inode2, "memory: save replaces the file atomically (new inode, no in-place rewrite)");
+    ok(JSON.stringify(loadMemories()) === JSON.stringify(list2), "memory: atomic save round-trips full list");
+    fs.writeFileSync(`${file}.999.tmp`, "junk from a crashed writer");
+    saveMemories(list2);
+    ok(JSON.stringify(loadMemories()) === JSON.stringify(list2), "memory: stale temp file does not break saves");
+    fs.unlinkSync(`${file}.999.tmp`);
+    saveMemories(list2);
+    const leftovers = fs.readdirSync(pathMod.dirname(file)).filter((f) => f.startsWith("memory.json") && f.endsWith(".tmp"));
+    ok(leftovers.length === 0, "memory: no temp files left after saving");
+  } finally {
+    process.env.HOME = realHome;
+  }
+}
+
 // --- remote (no ssh daemon in the test env: assert honest failure handling)
 {
   const r = remoteExec("localhost", "echo hi", { timeoutMs: 10000 });

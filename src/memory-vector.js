@@ -2,7 +2,7 @@
 // Facts live in ~/.rtools/memory.json as { id, text, tags, created_at }.
 // "Vector search" here is an honest lexical ranking (term vectors + IDF), not
 // embeddings — no external embedding service is required.
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -20,7 +20,18 @@ export function loadMemories() {
 
 export function saveMemories(list) {
   mkdirSync(path.dirname(FILE()), { recursive: true });
-  writeFileSync(FILE(), JSON.stringify(list, null, 2));
+  const file = FILE();
+  // Write to a temp file in the same directory, then rename: the rename is
+  // atomic, so a crash mid-write or a concurrent reader can never observe a
+  // truncated or half-written memory.json.
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(list, null, 2));
+    renameSync(tmp, file);
+  } catch (e) {
+    try { unlinkSync(tmp); } catch { /* best effort */ }
+    throw e;
+  }
 }
 
 let seq = Date.now();
