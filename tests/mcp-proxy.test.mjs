@@ -77,6 +77,28 @@ console.log("AUTH :", authRes);
 if (JSON.parse(authRes)?.result?.echo !== "auth-ok") { console.error("FAIL: authenticated path"); failures++; }
 auth.s.close();
 
+// Case 2b: a non-ok (4xx/5xx) reply to a notification (id undefined) must be
+// logged to stderr, not silently dropped. The old code returned null right
+// after the 401 check, so a server rejecting e.g. notifications/initialized
+// was never surfaced.
+{
+  const notif = await fakeServer((req, res, body) => {
+    if (body.id === undefined) { res.writeHead(500); res.end(); return; }
+    okJson({ echo: "after-notify" })(req, res, body);
+  });
+  const p = spawn("node", [path.join(root, "bin", "rtools-mcp-proxy.js"), "http", notif.url]);
+  let errText = "";
+  p.stderr.on("data", (d) => (errText += d));
+  p.stdout.on("data", () => {}); // drain; the request reply is irrelevant here
+  p.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+  p.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) + "\n");
+  await new Promise((r) => setTimeout(r, 1500));
+  p.kill();
+  if (!errText.includes("remote MCP notification 500")) { console.error(`FAIL: notification 500 not logged (stderr: ${JSON.stringify(errText)})`); failures++; }
+  else console.log("NOTIFY : non-ok notification reply logged to stderr");
+  notif.s.close();
+}
+
 rmSync(fakeHome, { recursive: true, force: true });
 
 // Case 3: PKCE round-trip — the code_verifier sent to the token endpoint must

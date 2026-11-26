@@ -28,7 +28,13 @@ async function post(body) {
       token = await getMcpAccessToken(url, url);
       return (await authorizedFetch(url, body, token)).text();
     }
-    if (body.id === undefined) return null;
+    if (body.id === undefined) {
+      // Notification: no response is expected, but a server rejection must
+      // not be silent (e.g. 'initialized' refused). The 401 branch above
+      // already re-posts the notification body after the token is obtained.
+      if (!probe.ok) console.error(`remote MCP notification ${probe.status} ${probe.statusText || ""}`.trim());
+      return null;
+    }
     const text = await probe.text();
     if (!probe.ok || !text.trim()) {
       throw new Error(`remote MCP ${probe.status} ${probe.statusText || ""}`.trim());
