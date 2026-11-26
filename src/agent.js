@@ -112,7 +112,9 @@ export async function buildContext(opts) {
     // marketplace optional
   }
   const provider = resolveProvider(cfg, opts.provider);
-  const apiKey = getApiKey(provider);
+  // Missing key must not kill the process before the TUI (and /setup) starts;
+  // the friendly error is raised per-turn in runAgentLoop instead.
+  const apiKey = (() => { try { return getApiKey(provider); } catch { return null; } })();
   const cwd = opts.cwd || process.cwd();
   const skills = await discoverSkills(cfg.skills_dirs || []);
   const mcpConnections = projectTrusted(cfg, cwd) ? await connectMcpServers(cfg) : [];
@@ -156,6 +158,9 @@ function shouldCheckpoint(tool) {
 
 export async function runAgentLoop({ provider, apiKey, model, messages, tools, approval, sandbox, maxSteps = 40, settings = {}, planMode = false, onText, onToolUse, onToolResult, askApproval, usageTracker, trace, cwd = process.cwd(), signal, _depth = 0 }) {
   const maxRetries = 2;
+  if (apiKey === null && provider.env_key) {
+    throw new Error(`Provider "${provider.id}" requires the environment variable ${provider.env_key} with its API key. Run /setup (or /provider zen for the free keyless models) inside the TUI, or set ${provider.env_key}.`);
+  }
   let step = 0;
   for (; step < maxSteps; step++) {
     // stream with retry on transient provider failures (and Ctrl+C: rethrow)

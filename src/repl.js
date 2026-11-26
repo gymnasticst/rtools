@@ -829,10 +829,10 @@ export async function startREPL(ctx) {
             ctx.provider = p;
             ctx.apiKey = key;
             try {
-              saveConfig({ model_provider: p.id });
-              console.log(`provider: ${p.id} (${p.wire_api}) (saved)`);
+              saveConfig({ model_provider: p.id, model: p.default_model });
+              console.log(`provider: ${p.id} (${p.wire_api}) (saved), model: ${p.default_model}`);
             } catch {
-              console.log(`provider: ${p.id} (${p.wire_api})`);
+              console.log(`provider: ${p.id} (${p.wire_api}), model: ${p.default_model}`);
             }
           } catch (e) {
             console.log(e.message);

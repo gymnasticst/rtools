@@ -65,8 +65,8 @@ rt exec "<промпт>"    one-shot запуск без интерфейса
 Файлы: `~/.rtools/config.toml` (глобально) и `./.rtools/config.toml` (проект, перекрывает глобальный):
 
 ```toml
-model = "gpt-5.1"
-model_provider = "openai"
+model = "nemotron-3.5-lightning-free"   # бесплатно, без ключа (OpenCode Zen)
+model_provider = "zen"
 approval_policy = "untrusted"   # untrusted | never | always
 auto_install = true             # ставить недостающие зависимости без запроса
 
@@ -242,6 +242,7 @@ CI (`.github/workflows/ci.yml`) гоняет `npm test` на каждый push �
 
 - `v0.1.21` — fix install: ship package.json with the installed files (2026-11-26)
 
+- `v0.1.23` — default provider is now OpenCode Zen with a free keyless model on first run; `/provider` and the setup wizard also switch the model to the provider default (2026-11-26)
 - `v0.1.20` — add OpenCode Zen provider with keyless free models (2026-11-26)
 
 - `v0.1.19` — attach files by dropping them onto the input window (2026-11-25)

@@ -37,7 +37,7 @@ export async function runSetupWizard({ version, nextLine }) {
     items: Object.entries(BUILTIN_PROVIDERS).map(([value, p]) => ({ label: p.name, hint: p.default_model, value })),
   });
   if (first === PALETTE_CANCEL) return "";
-  saveConfig({ model_provider: first });
+  saveConfig({ model_provider: first, model: BUILTIN_PROVIDERS[first].default_model });
   changed.push(`provider: ${first} (default model: ${BUILTIN_PROVIDERS[first].default_model})`);
 
   const policy = await pick({
@@ -57,7 +57,7 @@ export async function runSetupWizard({ version, nextLine }) {
   if (wantsKey) {
     const key = await nextLine("paste key (saved to config.toml): ");
     if (key && key.trim()) {
-      const provider = first || "openai";
+      const provider = first || "zen";
       saveConfig({ [provider === "openai" ? "api_key" : `${provider}_api_key`]: key.trim() });
       changed.push(`api key stored for ${provider}`);
     }

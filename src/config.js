@@ -4,6 +4,15 @@ import path from "node:path";
 import { parseTOML, stringifyTOML } from "./toml.js";
 
 export const BUILTIN_PROVIDERS = {
+  // Default provider: keyless free tier (models ending in "-free" need no key
+  // or account); paid models need a Zen key (override with
+  // [model_providers.zen] env_key = "ZEN_API_KEY").
+  zen: {
+    name: "OpenCode Zen (free)",
+    base_url: "https://opencode.ai/zen/v1",
+    wire_api: "chat",
+    default_model: "nemotron-3.5-lightning-free",
+  },
   openai: {
     name: "OpenAI",
     base_url: "https://api.openai.com/v1",
@@ -17,15 +26,6 @@ export const BUILTIN_PROVIDERS = {
     env_key: "ANTHROPIC_API_KEY",
     wire_api: "anthropic",
     default_model: "claude-sonnet-4-5",
-  },
-  // OpenCode Zen: OpenAI-compatible relay. Free tier is keyless — free models
-  // (ids ending in "-free") work without an account; paid models need a Zen
-  // key (override with [model_providers.zen] env_key = "ZEN_API_KEY").
-  zen: {
-    name: "OpenCode Zen",
-    base_url: "https://opencode.ai/zen/v1",
-    wire_api: "chat",
-    default_model: "nemotron-3.5-lightning-free",
   },
 };
 
@@ -55,8 +55,8 @@ function deepMerge(target, src) {
 // Defaults for every Codex-style setting.
 export function defaults() {
   return {
-    model: "gpt-5.1",
-    model_provider: "openai",
+    model: "nemotron-3.5-lightning-free", // free, keyless via OpenCode Zen
+    model_provider: "zen",
     approval_policy: "untrusted", // untrusted | never | always
     auto_install: true, // install missing dependencies (packages, MCP presets) without asking
     sandbox_mode: "workspace", // read-only | workspace | danger
