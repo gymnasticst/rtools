@@ -118,6 +118,11 @@ export function applyPatchTool({ cwd }) {
       // current files first, then write. A failure in hunk 3 no longer leaves
       // hunks 1-2 already on disk (a model retry would patch a half-applied tree).
       const plan = [];
+      // Content an earlier update hunk already computed for a path, so a
+      // second `*** Update File:` hunk for the same file chains onto the
+      // in-memory result instead of re-reading the disk and clobbering the
+      // first hunk's write in the write phase.
+      const pending = new Map();
       for (const hunk of hunks) {
         const abs = path.resolve(cwd, hunk.path);
         // containment: relative path must stay inside cwd (catches ../ and
@@ -129,8 +134,12 @@ export function applyPatchTool({ cwd }) {
         } else if (hunk.type === "delete") {
           plan.push({ rm: abs, label: `D ${hunk.path}` });
         } else {
-          const before = await readFile(abs, "utf8");
+          // Read the chained in-memory content if an earlier update hunk in
+          // this patch already touched this path; only the first hunk reads
+          // from disk.
+          const before = pending.get(abs) ?? (await readFile(abs, "utf8"));
           const after = applyUpdate(before, hunk.chunks);
+          pending.set(abs, after);
           if (after === before) plan.push({ label: `(no change) ${hunk.path}` });
           else plan.push({ abs, write: after, label: `M ${hunk.path}` });
         }

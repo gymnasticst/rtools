@@ -377,6 +377,33 @@ try {
   ok("writeInstalled quotes table keys for MCP server names with quotes/newlines");
 } catch (e) { fail("mcp server name TOML injection", e); }
 
+// --- 14. two Update File hunks for the same file must both apply ----------
+try {
+  const { applyPatchTool } = await import("../src/apply-patch.js");
+  const cwd = mkdtempSync(path.join(home, "twiceupd-"));
+  const f = path.join(cwd, "f.txt");
+  writeFileSync(f, "one\ntwo\nthree\n", "utf8");
+  const patch =
+    "*** Begin Patch\n" +
+    "*** Update File: f.txt\n" +
+    "@@\n" +
+    "-one\n" +
+    "+1\n" +
+    "*** Update File: f.txt\n" +
+    "@@\n" +
+    "-two\n" +
+    "+2\n" +
+    "*** End Patch\n";
+  const tool = applyPatchTool({ cwd });
+  await tool.handler({ patch });
+  assert.strictEqual(
+    readFileSync(f, "utf8"),
+    "1\n2\nthree\n",
+    "both update hunks for the same file must apply; the second must not clobber the first"
+  );
+  ok("apply_patch chains two Update File hunks for the same file");
+} catch (e) { fail("apply_patch two update hunks same file", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 
 if (failures) {
