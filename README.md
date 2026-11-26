@@ -3,7 +3,7 @@
 RTools — CLI-агент для программирования (команда `rt`; `rtools` работает как алиас): интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
 [![CI](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml/badge.svg)](https://github.com/gymnasticst/rtools/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.1.33-blue)
+![Version](https://img.shields.io/badge/version-0.1.34-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-blue)
 
 ## Содержание
@@ -237,6 +237,8 @@ CI (`.github/workflows/ci.yml`) гоняет `npm test` на каждый push �
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## История версий
+
+- `v0.1.34` — Доводка по повторному CodeQL-скану: HTML очищается однопроходным посимвольным парсером без регэкспов (нечего обманывать кусками тегов, двойного декодирования нет), свойства конфига создаются через Object.defineProperty (prototype pollution невозможен даже теоретически) (2026-11-26)
 
 - `v0.1.33` — Безопасность по CodeQL: HTML-теги срезаются циклом до стабильности (нельзя собрать тег из кусков), сущности декодируются одним проходом по фиксированной карте (нет двойного декодирования), ключи __proto__/constructor/prototype игнорируются в патчах и мерже конфига (нет prototype pollution) (2026-11-26)
 
