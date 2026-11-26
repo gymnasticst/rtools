@@ -2,7 +2,7 @@
 
 RTools — CLI-агент для программирования (команда `rt`; `rtools` работает как алиас): интерактивная сессия в терминале, one-shot режим `exec`, подключение любых провайдеров моделей (OpenAI-совместимых, включая Anthropic wire API), инструменты через MCP-серверы и скиллы.
 
-![Version](https://img.shields.io/badge/version-0.1.40-blue)
+![Version](https://img.shields.io/badge/version-0.1.41-blue)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 [![Release](https://img.shields.io/github/v/release/gymnasticst/rtools?label=release)](https://github.com/gymnasticst/rtools/releases)
@@ -246,6 +246,8 @@ npm test    # весь тестовый прогон (mcp-proxy, regression, wav
 Баги и предложения — через [Issues](https://github.com/gymnasticst/rtools/issues), правки — через Pull Request (см. [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## История версий
+
+- `v0.1.41` — Bump version from 0.1.40 to 0.1.41 (2026-11-26)
 
 - `v0.1.40` — фиксы из код-ревью: `safeSet`/`deepMerge`/`mergePatch` проверяют единый `FORBIDDEN_KEYS` вместо повторов сравнения inline; в хуки уходит валидный JSON даже для больших аргументов (`_truncated`-маркер вместо обрезки посередине); Shift+буква больше не срабатывает как обычная буква в хоткеях; MCP-прокси обрабатывает stdin-строки последовательно (медленный OAuth-проб не обгоняется) (2026-11-26)
 
