@@ -410,12 +410,17 @@ export async function startREPL(ctx) {
   };
 
   const cmdPermissions = async () => {
-    console.log(`approval policy: ${approval} (untrusted | never | always)`);
-    console.log(`sandbox mode:    ${sandbox} (read-only | workspace | danger)`);
-    const answer = await nextLine("new approval policy (Enter to keep): ");
-    if (answer.trim() && ["untrusted", "never", "always"].includes(answer.trim())) approval = answer.trim();
-    const answer2 = await nextLine("new sandbox mode (Enter to keep): ");
-    if (answer2.trim() && SANDBOX_MODES.includes(answer2.trim())) sandbox = answer2.trim();
+    // OpenCode-style: two modal pickers instead of text prompts.
+    const policy = await pick({
+      title: "Approval policy · Enter to set, Esc to keep",
+      items: ["untrusted", "never", "always"].map((p) => ({ label: p, hint: p === approval ? "current" : "", value: p })),
+    });
+    if (policy) approval = policy.value;
+    const mode = await pick({
+      title: "Sandbox mode · Enter to set, Esc to keep",
+      items: ["read-only", "workspace", "danger"].map((m) => ({ label: m, hint: m === sandbox ? "current" : "", value: m })),
+    });
+    if (mode) sandbox = mode.value;
     console.log(`approval: ${approval}, sandbox: ${sandbox}`);
   };
 
@@ -757,132 +762,49 @@ export async function startREPL(ctx) {
           if (!ctx.mcpConnections.length) console.log("(no MCP servers connected)");
           continue;
         }
-        case "/model": {
-          const sub = rest[0];
-          if (!sub) {
-            console.log(`model: ${model} (provider: ${ctx.provider.id})`);
-            console.log("(tip: /model list shows provider models; /model <name|alias> switches)");
-            continue;
-          }
-          if (sub === "list") {
-            const saved = Object.entries(ctx.cfg.models || {});
-            if (saved.length) console.log(`saved aliases:\n  ${saved.map(([a, id]) => `${a} = ${id}`).join("\n  ")}`);
-            try {
-              const { listModels } = await import("./providers.js");
-              const ids = await listModels({ provider: ctx.provider, apiKey: ctx.apiKey });
-              console.log(ids.length ? `models from ${ctx.provider.id}:\n  ${ids.join("\n  ")}` : `(${ctx.provider.id} returned no models)`);
-            } catch (e) {
-              console.log(`could not list models from ${ctx.provider.id}: ${e.message}`);
-            }
-            continue;
-          }
-          if (sub === "add") {
-            const [alias, id] = rest.slice(1);
-            if (!alias || !id) {
-              console.log("usage: /model add <alias> <model-id>");
-              continue;
-            }
-            ctx.cfg.models = { ...(ctx.cfg.models || {}), [alias]: id };
-            try {
-              saveConfig({ models: { [alias]: id } });
-              console.log(`saved ${alias} = ${id} to config.toml`);
-            } catch (e) {
-              console.log(`error: ${e.message}`);
-            }
-            continue;
-          }
-          if (sub === "rm") {
-            const alias = rest[1];
-            if (!alias || !(ctx.cfg.models || {})[alias]) {
-              console.log(`no such alias "${alias || ""}" (use /model list)`);
-              continue;
-            }
-            delete ctx.cfg.models[alias];
-            try {
-              saveConfig({ models: { [alias]: undefined } });
-              console.log(`removed alias ${alias}`);
-            } catch (e) {
-              console.log(`error: ${e.message}`);
-            }
-            continue;
-          }
-          model = (ctx.cfg.models || {})[sub] || sub;
+        case "/model":
+        case "/models": {
+          // OpenCode-style model picker: a modal list, not text args.
+          let ids = [];
           try {
-            saveConfig({ model });
-            console.log(`model: ${model} (saved)`);
-          } catch {
-            console.log(`model: ${model}`);
+            const { listModels } = await import("./providers.js");
+            ids = await listModels({ provider: ctx.provider, apiKey: ctx.apiKey });
+          } catch {}
+          const savedAliases = Object.entries(ctx.cfg.models || {}).map(([a, id]) => `${a} (${id})`);
+          const opts = [...new Set([...(ids.length ? ids : [model]), model])];
+          const sel = await pick({
+            title: `Models — ${ctx.provider.id} · Enter to switch, Esc to keep`,
+            items: opts.map((id) => ({ label: id, hint: id === model ? "current" : "", value: id })),
+          });
+          if (!sel) continue;
+          if (sel.value !== model) {
+            model = sel.value;
+            try { saveConfig({ model }); console.log(`model: ${model} (saved)`); } catch { console.log(`model: ${model}`); }
           }
+          if (savedAliases.length) console.log(`saved aliases: ${savedAliases.join(", ")}`);
           continue;
         }
         case "/provider": {
-          const sub = rest[0];
-          if (!sub || sub === "list") {
-            const custom = Object.keys(ctx.cfg.model_providers || {});
-            console.log(`current provider: ${ctx.provider.id}`);
-            console.log(`available: ${[...Object.keys(BUILTIN_PROVIDERS), ...custom].join(", ")}`);
-            console.log("(tip: /provider add <id> <base_url> [env_key] [wire_api] adds a custom provider)");
-            continue;
-          }
-          if (sub === "add") {
-            const [id, baseUrl, envKey, wireApi] = rest.slice(1);
-            if (!id || !baseUrl) {
-              console.log("usage: /provider add <id> <base_url> [env_key] [wire_api=chat|responses|anthropic]");
-              continue;
-            }
-            if (BUILTIN_PROVIDERS[id]) {
-              console.log(`"${id}" is a built-in provider and cannot be replaced`);
-              continue;
-            }
-            const wire = wireApi || "chat";
-            if (!["chat", "responses", "anthropic"].includes(wire)) {
-              console.log(`wire_api must be chat | responses | anthropic (got "${wire}")`);
-              continue;
-            }
-            const entry = { name: id, base_url: baseUrl, env_key: envKey || null, wire_api: wire };
-            ctx.cfg.model_providers = { ...(ctx.cfg.model_providers || {}), [id]: entry };
-            try {
-              saveConfig({ model_providers: { [id]: entry } });
-              console.log(`provider ${id} saved to config.toml (base_url=${baseUrl}, wire_api=${wire})`);
-            } catch (e) {
-              console.log(`error: ${e.message}`);
-            }
-            continue;
-          }
-          if (sub === "rm") {
-            const id = rest[1];
-            if (!id) {
-              console.log("usage: /provider rm <id>");
-              continue;
-            }
-            if (BUILTIN_PROVIDERS[id]) {
-              console.log(`"${id}" is built-in and cannot be removed`);
-              continue;
-            }
-            if (!(ctx.cfg.model_providers || {})[id]) {
-              console.log(`no such custom provider "${id}" (use /provider list)`);
-              continue;
-            }
-            delete ctx.cfg.model_providers[id];
-            try {
-              saveConfig({ model_providers: { [id]: undefined } });
-              console.log(`provider ${id} removed`);
-            } catch (e) {
-              console.log(`error: ${e.message}`);
-            }
-            continue;
-          }
+          // OpenCode-style provider picker: modal list; Enter switches and
+          // applies the provider's default model. Custom provider add/remove
+          // stays available via /palette → provider add/rm.
+          const providerIds = [...new Set([...Object.keys(BUILTIN_PROVIDERS), ...Object.keys(ctx.cfg.model_providers || {})])];
+          const sel = await pick({
+            title: "Providers · Enter to switch, Esc to keep",
+            items: providerIds.map((id) => ({ label: id, hint: id === ctx.provider.id ? "current" : (BUILTIN_PROVIDERS[id]?.default_model || ""), value: id })),
+          });
+          if (!sel || sel.value === ctx.provider.id) continue;
           try {
             const { resolveProvider, getApiKey } = await import("./config.js");
-            const p = resolveProvider(ctx.cfg, sub);
-            const key = getApiKey(p);
+            const p = resolveProvider(ctx.cfg, sel.value);
             ctx.provider = p;
-            ctx.apiKey = key;
+            ctx.apiKey = getApiKey(p);
+            model = p.default_model || model;
             try {
-              saveConfig({ model_provider: p.id, model: p.default_model });
-              console.log(`provider: ${p.id} (${p.wire_api}) (saved), model: ${p.default_model}`);
+              saveConfig({ model_provider: p.id, model });
+              console.log(`provider: ${p.id} (${p.wire_api}) (saved), model: ${model}`);
             } catch {
-              console.log(`provider: ${p.id} (${p.wire_api}), model: ${p.default_model}`);
+              console.log(`provider: ${p.id} (${p.wire_api}), model: ${model}`);
             }
           } catch (e) {
             console.log(e.message);
@@ -1317,7 +1239,16 @@ export async function startREPL(ctx) {
         case "/palette":
           await openPalette("commands");
           continue;
-        case "/effort":
+        case "/effort": {
+          // OpenCode-style: modal choice instead of text args.
+          if (!rest[0]) {
+            const sel = await pick({
+              title: "Reasoning effort · Enter to set, Esc to keep",
+              items: ["low", "medium", "high"].map((e) => ({ label: e, hint: e === effort ? "current" : "", value: e })),
+            });
+            if (!sel) continue;
+            rest[0] = sel.value;
+          }
           if (["low", "medium", "high"].includes(rest[0])) {
             effort = rest[0];
             try {
@@ -1328,6 +1259,7 @@ export async function startREPL(ctx) {
             }
           } else console.log("usage: /effort low|medium|high");
           continue;
+        }
         case "/verbosity":
           if (["low", "medium", "high"].includes(rest[0])) {
             verbosity = rest[0];
