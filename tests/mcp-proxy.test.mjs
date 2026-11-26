@@ -99,6 +99,32 @@ auth.s.close();
   notif.s.close();
 }
 
+// Case 2c: a falsy response body (e.g. literal `null`) to a request (id
+// defined) must still produce a reply on stdout with that id, or the stdio
+// client waits forever. The old code skipped the write when the parsed body
+// was falsy (`msg.id !== undefined && result`).
+{
+  const nullBody = await fakeServer((req, res, body) => {
+    if (body.id === undefined) { res.writeHead(200); res.end(); return; }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end("null");
+  });
+  const p = spawn("node", [path.join(root, "bin", "rtools-mcp-proxy.js"), "http", nullBody.url]);
+  let out = "";
+  p.stdout.on("data", (d) => (out += d));
+  p.stderr.on("data", () => {});
+  p.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) + "\n");
+  await new Promise((r) => setTimeout(r, 1500));
+  p.kill();
+  let reply = null;
+  try { reply = JSON.parse(out.split("\n").find((l) => l.trim()) || "null"); } catch {}
+  if (reply?.id !== 1 || !reply?.error?.message) {
+    console.error(`FAIL: falsy response body left the client hanging or replied without id (stdout: ${JSON.stringify(out)})`);
+    failures++;
+  } else console.log("NULLBODY: falsy response body replied with an error envelope carrying the id");
+  nullBody.s.close();
+}
+
 rmSync(fakeHome, { recursive: true, force: true });
 
 // Case 3: PKCE round-trip — the code_verifier sent to the token endpoint must

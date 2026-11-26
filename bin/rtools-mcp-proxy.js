@@ -71,7 +71,15 @@ rl.on("line", async (line) => {
   }
   try {
     const result = await handle(msg);
-    if (msg.id !== undefined && result) process.stdout.write(JSON.stringify(result) + "\n");
+    if (msg.id !== undefined) {
+      // A request must always get a reply on stdout or the stdio client waits
+      // forever for that id. A falsy body from the server (e.g. a literal
+      // `null` or `0`) is not a valid JSON-RPC envelope and carries no id, so
+      // it is wrapped in an error envelope with the request's id instead.
+      process.stdout.write(JSON.stringify(
+        result ?? { jsonrpc: "2.0", id: msg.id, error: { message: "remote MCP server returned an invalid (falsy) response" } },
+      ) + "\n");
+    }
   } catch (e) {
     if (msg.id !== undefined) {
       process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, error: { message: e.message } }) + "\n");
