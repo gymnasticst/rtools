@@ -630,6 +630,31 @@ try {
   ok("unknown dash-flags are rejected instead of becoming prompt text or a command name");
 } catch (e) { fail("unknown dash-flag rejection", e); }
 
+// --- 22. oversized RTOOLS_ARGS stays valid JSON for hooks ---------------------
+try {
+  const { truncatedJson } = await import("../src/hooks.js");
+  const big = { file: "a.txt", content: "x".repeat(20000) };
+
+  // old behavior: JSON.stringify(...).slice(0, 8000) is not parseable JSON
+  const cut = JSON.stringify(big).slice(0, 8000);
+  assert.throws(() => JSON.parse(cut), SyntaxError, "precondition: the old slice was invalid JSON");
+
+  // under the limit: the full payload, unchanged
+  const small = truncatedJson({ file: "a.txt", content: "hi" }, 8000);
+  assert.deepStrictEqual(JSON.parse(small), { file: "a.txt", content: "hi" });
+
+  // over the limit: valid JSON, within the cap, marked as truncated, and the
+  // values that fit are kept whole (no mid-string cuts)
+  const s = truncatedJson(big, 8000);
+  const parsed = JSON.parse(s);
+  assert.ok(s.length <= 8000, `serialized args must stay within the cap, got ${s.length}`);
+  assert.strictEqual(parsed._truncated, true, "oversized args must carry the _truncated marker");
+  assert.strictEqual(parsed.file, "a.txt", "keys that fit must survive whole");
+  assert.strictEqual(parsed.content, undefined, "values that do not fit must be dropped, not cut");
+
+  ok("oversized RTOOLS_ARGS stays valid JSON with a _truncated marker");
+} catch (e) { fail("hook args truncation", e); }
+
 if (failures) {
   console.error(`REGRESSION: ${failures} FAILED`);
   process.exit(1);
