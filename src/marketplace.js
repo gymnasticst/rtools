@@ -205,7 +205,7 @@ function tomlString(value) {
 function writeInstalled(servers) {
   const lines = [];
   for (const [name, spec] of Object.entries(servers)) {
-    lines.push(`[mcp_servers.${name}]`);
+    lines.push(`[mcp_servers.${/^[A-Za-z0-9_-]+$/.test(name) ? name : tomlString(name)}]`);
     lines.push(`command = ${tomlString(spec.command)}`);
     if (spec.args?.length) lines.push(`args = [${spec.args.map((a) => tomlString(a)).join(", ")}]`);
     if (spec.env && Object.keys(spec.env).length) {

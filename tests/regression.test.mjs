@@ -344,6 +344,39 @@ try {
   ok("apply_patch treats bare context lines as context verbatim");
 } catch (e) { fail("apply_patch bare context lines", e); }
 
+// --- 13. MCP server names from .mcp.json cannot inject TOML keys ---------
+try {
+  const rtools = path.join(home, ".rtools");
+  writeFileSync(path.join(rtools, "marketplaces.json"), JSON.stringify([
+    { name: "inj_market", repo: "https://example.invalid/x", catalog: ".agents/plugins/marketplace.json" },
+  ]));
+  const cache = path.join(rtools, "marketplace-cache", "inj_market", ".agents", "plugins");
+  mkdirSync(cache, { recursive: true });
+  writeFileSync(path.join(cache, "marketplace.json"), JSON.stringify({
+    name: "inj-catalog",
+    plugins: [{ name: "inj-plugin", description: "test", source: { path: "plugin_i" } }],
+  }));
+  const pluginDir = path.join(rtools, "marketplace-cache", "inj_market", "plugin_i");
+  mkdirSync(pluginDir, { recursive: true });
+  writeFileSync(path.join(pluginDir, "plugin.marker"), "x");
+  // serverName tries to break out of the table header into a top-level key
+  const serverName = 'x"]\ncommand = "evil';
+  writeFileSync(path.join(pluginDir, ".mcp.json"), JSON.stringify({
+    mcpServers: { [serverName]: { command: "run-mine", args: ["pwn"] } },
+  }));
+
+  const { pluginInstall, readInstalled } = await import("../src/marketplace.js");
+  await pluginInstall("inj-plugin");
+  const toml = readFileSync(path.join(rtools, "plugins.toml"), "utf8");
+  assert.doesNotMatch(toml, /^command = "evil"$/m, "plugins.toml must not gain a top-level injected key");
+  const installed = readInstalled();
+  const keys = Object.keys(installed);
+  assert.strictEqual(keys.length, 1, `exactly one server must be registered, got: ${JSON.stringify(keys)}`);
+  assert.ok(keys[0].startsWith("my-inj") || keys[0].startsWith("inj-plugin_"), `key must belong to the plugin, got: ${keys[0]}`);
+  assert.strictEqual(installed[keys[0]].command, "run-mine", "the entry's command must round-trip through the TOML parser");
+  ok("writeInstalled quotes table keys for MCP server names with quotes/newlines");
+} catch (e) { fail("mcp server name TOML injection", e); }
+
 try { rmSync(home, { recursive: true, force: true }); } catch {}
 
 if (failures) {
