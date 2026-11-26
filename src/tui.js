@@ -38,35 +38,80 @@ function osHome() {
   return process.env.HOME || "";
 }
 
-export function banner({ version, model, effort, provider, cwd }) {
-  const w = Math.min(termWidth(), 58);
+// Rounded box drawn inline (used for popups / settings overlay).
+export function box(lines, { color = C.cyan, width } = {}) {
+  const w = Math.min(width || Math.max(...lines.map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").length)) + 4, termWidth() - 2);
+  const pad = (s) => {
+    const len = s.replace(/\x1b\[[0-9;]*m/g, "").length;
+    return s + " ".repeat(Math.max(0, w - 2 - len));
+  };
+  const out = [];
+  out.push(color("╭" + "─".repeat(w - 2) + "╮"));
+  for (const l of lines) out.push(color("│") + " " + pad(l) + color("│"));
+  out.push(color("╰" + "─".repeat(w - 2) + "╯"));
+  return out.join("\n");
+}
+
+// Fade-in: lines appear one by one (only on a TTY; instant in plain mode).
+export function animateLines(lines, { delay = 24 } = {}) {
+  if (process.stdout.isTTY === false || plain) {
+    console.log(lines.join("\n"));
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    let i = 0;
+    const timer = setInterval(() => {
+      if (i >= lines.length) {
+        clearInterval(timer);
+        return resolve();
+      }
+      process.stdout.write(lines[i++] + "\n");
+    }, delay);
+  });
+}
+
+// Shared banner frame builder: the width fits the longest row, but hint text
+// is capped so a long model id cannot stretch the frame past the terminal.
+function bannerLines({ version, model, effort, provider, cwd }) {
+  const cap = (s, n) => {
+    const plainLen = s.replace(/\x1b\[[0-9;]*m/g, "").length;
+    return plainLen <= n ? s : s.replace(/\x1b\[[0-9;]*m/g, "").slice(0, n - 1) + "…";
+  };
+  const rows = [
+    `${C.bold(">_ RTools")}${C.gray(` (v${version})`)}`,
+    "",
+    cap(`model:     ${model} ${effort}`, 46),
+    `provider:  ${provider}`,
+    `directory: ${shorten(cwd)}`,
+  ];
+  const w = Math.min(Math.max(...rows.map((r) => r.replace(/\x1b\[[0-9;]*m/g, "").length)) + 4, termWidth());
   const top = "╭" + "─".repeat(w - 2) + "╮";
   const bot = "╰" + "─".repeat(w - 2) + "╯";
-  const row = (label, value) => {
-    const text = ` ${label}${value}`;
-    return "│" + text + " ".repeat(Math.max(1, w - 2 - text.replace(/\x1b\[[0-9;]*m/g, "").length)) + "│";
-  };
-  console.log(
-    [
-      "",
-      C.cyan(top),
-      C.cyan(row(C.bold(`>_ RTools`), C.gray(`(${version})`))),
-      C.cyan(row("", "")),
-      C.cyan(row("model:     ", `${model} ${C.gray(effort)} ${C.gray("/model to change")}`)),
-      C.cyan(row("provider:  ", provider)),
-      C.cyan(row("directory: ", shorten(cwd))),
-      C.cyan(bot),
-      "",
-      "  To get started, describe a task or try one of these commands:",
-      "",
-      C.gray("  /init - create an AGENTS.md file with instructions for RTools"),
-      C.gray("  /status - show current session configuration"),
-      C.gray("  /permissions - choose what RTools is allowed to do"),
-      C.gray("  /model - choose what model and reasoning effort to use"),
-      C.gray("  /review - review any changes and find issues"),
-      "",
-    ].join("\n")
-  );
+  const row = (s) => C.cyan("│" + s + " ".repeat(Math.max(0, w - 2 - s.replace(/\x1b\[[0-9;]*m/g, "").length)) + "│");
+  return ["", C.cyan(top), ...rows.map((r) => row(" " + r)), C.cyan(bot), ""];
+}
+
+function hintsLines() {
+  return [
+    "  To get started, describe a task or try one of these commands:",
+    "",
+    C.gray("  /init - create an AGENTS.md file with instructions for RTools"),
+    C.gray("  /status - show current session configuration"),
+    C.gray("  /permissions - choose what RTools is allowed to do"),
+    C.gray("  /model - choose what model and reasoning effort to use"),
+    C.gray("  /review - review any changes and find issues"),
+    "",
+  ];
+}
+
+export function banner(opts) {
+  console.log([...bannerLines(opts), ...hintsLines()].join("\n"));
+}
+
+// Fade-in animation of the frame on a TTY; hints print right after.
+export async function bannerAnimated(opts) {
+  await animateLines(bannerLines(opts), { delay: 30 });
+  console.log(hintsLines().join("\n"));
 }
 
 export function statusBar({ model, effort, tokensLeft = 100, tokensUsed = 0, git = "", jobs = 0 }) {

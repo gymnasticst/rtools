@@ -6,6 +6,12 @@ import { execFileSync, spawn as spawnProcess } from "node:child_process";
 import path from "node:path";
 import { runAgentLoop, systemPrompt, needsApproval } from "./agent.js";
 import { saveConfig, BUILTIN_PROVIDERS } from "./config.js";
+
+// Real installed version (lib-rtools ships its package.json), not a hardcoded one.
+const pkgVersion = () => {
+  try { return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version; }
+  catch { return "dev"; }
+};
 import { SETTING_DEFS, getSetting, setSettingPatch, applyPatch, nextEnum, parseSettingInput, formatSettingValue } from "./settings-schema.js";
 import { pick, typeText, confirm, PALETTE_CANCEL } from "./palette.js";
 import { saveSession, listSessions, loadSession, compactMessages, estimateTokens } from "./session.js";
@@ -31,7 +37,7 @@ import { builtinTools } from "./tools.js";
 import { parseDroppedFiles } from "./attach.js";
 import { createUsage, addUsage, formatUsage } from "./usage.js";
 import { gitStatus, copyToClipboard, statusBar } from "./tui.js";
-import { banner, Spinner, toolNotice, turnStart, mdStreamer } from "./tui.js";
+import { banner, bannerAnimated, box, Spinner, toolNotice, turnStart, mdStreamer } from "./tui.js";
 import { isFirstRun, runSetupWizard } from "./welcome.js";
 
 const HELP = `Commands:
@@ -178,8 +184,16 @@ export async function startREPL(ctx) {
     }
   };
 
-  banner({ version: "0.1.0", model, effort, provider: ctx.provider.id, cwd: ctx.cwd });
+  await bannerAnimated({ version: pkgVersion(), model, effort, provider: ctx.provider.id, cwd: ctx.cwd });
   console.log(statusBarLine());
+
+  // Non-blocking update hint: if a newer release exists, say it in one line.
+  import("./update.js").then(({ latestTag }) => {
+    const latest = latestTag();
+    if (latest && latest !== `v${pkgVersion()}`) {
+      console.log(`\n  Доступна новая версия: ${latest.replace(/^v/, "")} (у вас ${pkgVersion()}). Обновление: rt --update`);
+    }
+  }).catch(() => {});
 
   // First run: interactive welcome + setup wizard (provider, policy, key).
   const setupWizard = async (version) => {
@@ -191,8 +205,8 @@ export async function startREPL(ctx) {
     Object.assign(ctx.cfg, fresh.loadConfig());
   };
   if (isFirstRun() && !process.env.RTOOLS_NO_SETUP) {
-    await setupWizard("0.1.0");
-    banner({ version: "0.1.0", model, effort, provider: ctx.provider.id, cwd: ctx.cwd });
+    await setupWizard(pkgVersion());
+    banner({ version: pkgVersion(), model, effort, provider: ctx.provider.id, cwd: ctx.cwd });
     console.log(statusBarLine());
   }
 
